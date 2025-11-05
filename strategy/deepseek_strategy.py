@@ -636,16 +636,16 @@ class DeepSeekAIStrategy(Strategy):
 
     def on_position_opened(self, event):
         """Handle position opened events."""
-        position = event.position
+        # PositionOpened event contains position data directly
         self.log.info(
-            f"🟢 Position opened: {position.side.name} "
-            f"{position.quantity} @ {position.avg_px_open}"
+            f"🟢 Position opened: {event.side.name} "
+            f"{event.quantity} @ {event.avg_px_open}"
         )
 
     def on_position_closed(self, event):
         """Handle position closed events."""
-        position = event.position
+        # PositionClosed event contains position data directly
         self.log.info(
-            f"🔴 Position closed: {position.side.name} "
-            f"P&L: {position.realized_pnl:.2f} USDT"
+            f"🔴 Position closed: {event.side.name} "
+            f"P&L: {event.realized_pnl:.2f} USDT"
         )
