@@ -131,10 +131,10 @@ class DeepSeekAnalyzer:
                     "content": (
                         "You are an elite algorithmic trading system specializing in "
                         "high-frequency cryptocurrency trading on Binance Futures (BTCUSDT-PERP). "
-                        "You analyze 1-minute K-line data with precision, combining multiple "
+                        "You analyze 15-minute K-line data with precision, combining multiple "
                         "technical indicators, market microstructure, and sentiment analysis. "
                         "Your decisions must be data-driven, risk-aware, and optimized for "
-                        "1-minute timeframe characteristics. Always return responses strictly in JSON format."
+                        "15-minute timeframe characteristics. Always return responses strictly in JSON format."
                     )
                 },
                 {"role": "user", "content": prompt}
@@ -212,7 +212,7 @@ class DeepSeekAnalyzer:
 
         prompt = f"""
 ═══════════════════════════════════════════════════════════════
-  BTC/USDT FUTURES - 1-MINUTE TIMEFRAME ANALYSIS
+  BTC/USDT FUTURES - 15-MINUTE TIMEFRAME ANALYSIS
 ═══════════════════════════════════════════════════════════════
 
 【MARKET CONTEXT - REAL-TIME DATA】
@@ -332,13 +332,13 @@ LOW Confidence:
    └─ High-confidence signals require volume confirmation
    └─ Low volume moves are less reliable
 
-【5. 1-MINUTE TIMEFRAME SPECIFIC CONSIDERATIONS】
+【5. 15-MINUTE TIMEFRAME SPECIFIC CONSIDERATIONS】
 
-├─ Rapid price movements require quick decision-making
-├─ False signals more common → Require stronger confirmation
-├─ Volume spikes are critical indicators
-├─ RSI > 70 or < 30 can persist longer in strong trends
-└─ MACD signals more reliable than on longer timeframes
+├─ Balanced timeframe for both trend following and swing trading
+├─ Signals are more reliable with reduced noise compared to 1-minute
+├─ Volume analysis is important for confirmation
+├─ RSI > 70 or < 30 indicates strong momentum (act with caution)
+└─ MACD crossovers are significant and should be respected
 
 【6. RISK MANAGEMENT INTEGRATION】
 
@@ -406,7 +406,7 @@ Remember: Be decisive but not reckless. Quality over quantity.
         if not kline_data:
             return "【Recent K-line Data】\nNo K-line data available"
 
-        kline_text = "【Recent 10 1-minute K-lines (Most Recent)】\n"
+        kline_text = "【Recent 10 15-minute K-lines (Most Recent)】\n"
         for i, kline in enumerate(kline_data[-10:], 1):
             candle_type = "🟢 Bullish" if kline['close'] > kline['open'] else "🔴 Bearish"
             change = ((kline['close'] - kline['open']) / kline['open']) * 100
