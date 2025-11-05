@@ -68,6 +68,19 @@ def get_env_str(key: str, default: str) -> str:
     return value.strip()
 
 
+def get_env_int(key: str, default: str) -> int:
+    """
+    Safely get integer environment variable, removing any inline comments.
+    """
+    value = os.getenv(key, default)
+    # Remove inline comments (anything after #)
+    if '#' in value:
+        value = value.split('#')[0]
+    # Strip whitespace
+    value = value.strip()
+    return int(value)
+
+
 def get_strategy_config() -> DeepSeekAIStrategyConfig:
     """
     Build strategy configuration from environment variables.
@@ -134,11 +147,11 @@ def get_strategy_config() -> DeepSeekAIStrategyConfig:
 
         # Position sizing
         base_usdt_amount=base_position,
-        high_confidence_multiplier=float(os.getenv('HIGH_CONFIDENCE_MULTIPLIER', '1.5')),
-        medium_confidence_multiplier=float(os.getenv('MEDIUM_CONFIDENCE_MULTIPLIER', '1.0')),
-        low_confidence_multiplier=float(os.getenv('LOW_CONFIDENCE_MULTIPLIER', '0.5')),
-        max_position_ratio=float(os.getenv('MAX_POSITION_RATIO', '0.10')),
-        trend_strength_multiplier=float(os.getenv('TREND_STRENGTH_MULTIPLIER', '1.2')),
+        high_confidence_multiplier=get_env_float('HIGH_CONFIDENCE_MULTIPLIER', '1.5'),
+        medium_confidence_multiplier=get_env_float('MEDIUM_CONFIDENCE_MULTIPLIER', '1.0'),
+        low_confidence_multiplier=get_env_float('LOW_CONFIDENCE_MULTIPLIER', '0.5'),
+        max_position_ratio=get_env_float('MAX_POSITION_RATIO', '0.10'),
+        trend_strength_multiplier=get_env_float('TREND_STRENGTH_MULTIPLIER', '1.2'),
         min_trade_amount=0.001,  # Binance minimum
 
         # Technical indicators - Production mode (standard periods)
@@ -163,7 +176,7 @@ def get_strategy_config() -> DeepSeekAIStrategyConfig:
         sentiment_timeframe="1m" if timeframe == "1m" else ("5m" if timeframe == "5m" else "15m"),
 
         # Risk
-        min_confidence_to_trade=os.getenv('MIN_CONFIDENCE_TO_TRADE', 'MEDIUM'),
+        min_confidence_to_trade=get_env_str('MIN_CONFIDENCE_TO_TRADE', 'MEDIUM'),
         allow_reversals=True,
         require_high_confidence_for_reversal=False,
         rsi_extreme_threshold_upper=75.0,
@@ -174,7 +187,7 @@ def get_strategy_config() -> DeepSeekAIStrategyConfig:
         position_adjustment_threshold=0.001,
 
         # Timing - Load from YAML config (default: 900 seconds = 15 minutes)
-        timer_interval_sec=int(os.getenv('TIMER_INTERVAL_SEC', str(strategy_yaml.get('timer_interval_sec', 900)))),
+        timer_interval_sec=get_env_int('TIMER_INTERVAL_SEC', str(strategy_yaml.get('timer_interval_sec', 900))),
     )
 
 
@@ -236,7 +249,7 @@ def setup_trading_node() -> TradingNodeConfig:
     )
 
     # Logging configuration
-    log_level = os.getenv('LOG_LEVEL', 'INFO')
+    log_level = get_env_str('LOG_LEVEL', 'INFO')
 
     logging_config = LoggingConfig(
         log_level=log_level,
@@ -280,8 +293,8 @@ def main():
     print("=" * 70)
 
     # Safety check
-    test_mode = os.getenv('TEST_MODE', 'false').lower() == 'true'
-    auto_confirm = os.getenv('AUTO_CONFIRM', 'false').lower() == 'true'
+    test_mode = os.getenv('TEST_MODE', 'false').strip().lower() == 'true'
+    auto_confirm = os.getenv('AUTO_CONFIRM', 'false').strip().lower() == 'true'
     
     if test_mode:
         print("⚠️  TEST_MODE=true - This is a simulation, no real orders will be placed")

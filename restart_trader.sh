@@ -44,16 +44,12 @@ fi
 # 激活虚拟环境
 source /home/ubuntu/deepseek_venv/bin/activate
 
-# 设置环境变量
-export AUTO_CONFIRM=true
-export EQUITY=400  # 实际账户余额
-
 # 创建日志目录
 mkdir -p logs
 
-# 启动新进程
+# 启动新进程（直接在命令行设置环境变量）
 echo "🚀 Starting new process..."
-nohup python main_live.py > logs/trader_$(date +%Y%m%d_%H%M%S).log 2>&1 &
+AUTO_CONFIRM=true EQUITY=400 nohup python main_live.py > logs/trader_$(date +%Y%m%d_%H%M%S).log 2>&1 &
 
 # 保存 PID
 echo $! > trader.pid
