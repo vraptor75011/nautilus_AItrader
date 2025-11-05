@@ -90,7 +90,7 @@ def get_strategy_config() -> DeepSeekAIStrategyConfig:
     equity = get_env_float('EQUITY', str(strategy_yaml.get('equity', '400')))
     leverage = get_env_float('LEVERAGE', str(strategy_yaml.get('leverage', '10')))
     base_position = get_env_float('BASE_POSITION_USDT', str(strategy_yaml.get('position_management', {}).get('base_usdt_amount', '30')))
-    timeframe = get_env_str('TIMEFRAME', '1m')  # Changed to 1m for QUICK TEST
+    timeframe = get_env_str('TIMEFRAME', '15m')  # Production: 15-minute timeframe
     
     # Debug output
     print(f"[CONFIG] Equity: {equity}")
@@ -141,7 +141,8 @@ def get_strategy_config() -> DeepSeekAIStrategyConfig:
         trend_strength_multiplier=float(os.getenv('TREND_STRENGTH_MULTIPLIER', '1.2')),
         min_trade_amount=0.001,  # Binance minimum
 
-        # Technical indicators - Quick test mode for 1m bars
+        # Technical indicators - Production mode (standard periods)
+        # Use reduced periods only for 1m bars (for testing)
         sma_periods=[3, 7, 15] if timeframe == '1m' else [5, 20, 50],
         rsi_period=7 if timeframe == '1m' else 14,
         macd_fast=5 if timeframe == '1m' else 12,
@@ -158,8 +159,7 @@ def get_strategy_config() -> DeepSeekAIStrategyConfig:
         # Sentiment
         sentiment_enabled=True,
         sentiment_lookback_hours=4,
-        # Set sentiment timeframe based on bar timeframe
-        # Note: CryptoOracle API may not support 1m, so use compatible timeframe
+        # Set sentiment timeframe based on bar timeframe (default to 15m)
         sentiment_timeframe="1m" if timeframe == "1m" else ("5m" if timeframe == "5m" else "15m"),
 
         # Risk

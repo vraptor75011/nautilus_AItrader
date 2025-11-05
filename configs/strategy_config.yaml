@@ -5,7 +5,7 @@ strategy:
   instrument_id: "BTCUSDT-PERP.BINANCE"
 
   # Bar configuration
-  bar_type: "BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"  # FAST TEST: 1-minute bars
+  bar_type: "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"  # Production: 15-minute bars
 
   # Capital and leverage
   equity: 400  # USDT (实际账户余额)
@@ -21,18 +21,18 @@ strategy:
     trend_strength_multiplier: 1.2
     min_trade_amount: 0.001  # Minimum BTC amount
 
-  # Technical indicators parameters - FAST TEST: Reduced periods
+  # Technical indicators parameters - Production: Standard periods for 15-minute timeframe
   indicators:
-    sma_periods: [3, 7, 15]  # Reduced from [5, 20, 50]
-    ema_periods: [5, 10]     # Reduced from [12, 26]
-    rsi_period: 7            # Reduced from 14
-    macd_fast: 5             # Reduced from 12
-    macd_slow: 10            # Reduced from 26
-    macd_signal: 5           # Reduced from 9
-    bollinger_period: 10     # Reduced from 20
+    sma_periods: [5, 20, 50]  # Standard SMA periods
+    ema_periods: [12, 26]     # Standard EMA periods for MACD
+    rsi_period: 14            # Standard RSI period
+    macd_fast: 12             # Standard MACD fast period
+    macd_slow: 26             # Standard MACD slow period
+    macd_signal: 9            # Standard MACD signal period
+    bollinger_period: 20      # Standard Bollinger Band period
     bollinger_std: 2.0
-    volume_ma_period: 10     # Reduced from 20
-    support_resistance_lookback: 10  # Reduced from 20
+    volume_ma_period: 20      # Standard volume MA period
+    support_resistance_lookback: 20  # Standard lookback for S/R levels
 
   # AI configuration
   deepseek:
