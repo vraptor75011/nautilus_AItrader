@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.trading.strategy import Strategy
 from nautilus_trader.model.data import Bar, BarType
-from nautilus_trader.model.enums import OrderSide, TimeInForce, PositionSide, PriceType
+from nautilus_trader.model.enums import OrderSide, TimeInForce, PositionSide, PriceType, TriggerType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.position import Position
@@ -25,6 +25,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from indicators.technical_manager import TechnicalIndicatorManager
 from utils.deepseek_client import DeepSeekAnalyzer
 from utils.sentiment_client import SentimentDataFetcher
+from utils.oco_manager import OCOManager
 
 
 class DeepSeekAIStrategyConfig(StrategyConfig, frozen=True):
@@ -73,6 +74,22 @@ class DeepSeekAIStrategyConfig(StrategyConfig, frozen=True):
     rsi_extreme_threshold_upper: float = 75.0
     rsi_extreme_threshold_lower: float = 25.0
     rsi_extreme_multiplier: float = 0.7
+    
+    # Stop Loss & Take Profit
+    enable_auto_sl_tp: bool = True
+    sl_use_support_resistance: bool = True
+    sl_buffer_pct: float = 0.001
+    tp_high_confidence_pct: float = 0.03
+    tp_medium_confidence_pct: float = 0.02
+    tp_low_confidence_pct: float = 0.01
+    
+    # OCO (One-Cancels-the-Other)
+    enable_oco: bool = True
+    oco_redis_host: str = "localhost"
+    oco_redis_port: int = 6379
+    oco_redis_db: int = 0
+    oco_redis_password: Optional[str] = None
+    oco_group_ttl_hours: int = 24
 
     # Execution
     position_adjustment_threshold: float = 0.001
@@ -125,6 +142,40 @@ class DeepSeekAIStrategy(Strategy):
         self.rsi_extreme_upper = config.rsi_extreme_threshold_upper
         self.rsi_extreme_lower = config.rsi_extreme_threshold_lower
         self.rsi_extreme_mult = config.rsi_extreme_multiplier
+        
+        # Stop Loss & Take Profit
+        self.enable_auto_sl_tp = config.enable_auto_sl_tp
+        self.sl_use_support_resistance = config.sl_use_support_resistance
+        self.sl_buffer_pct = config.sl_buffer_pct
+        self.tp_pct_config = {
+            'HIGH': config.tp_high_confidence_pct,
+            'MEDIUM': config.tp_medium_confidence_pct,
+            'LOW': config.tp_low_confidence_pct,
+        }
+        
+        # Store latest signal and technical data for SL/TP calculation
+        self.latest_signal_data: Optional[Dict[str, Any]] = None
+        self.latest_technical_data: Optional[Dict[str, Any]] = None
+        
+        # OCO (One-Cancels-the-Other) Manager
+        self.enable_oco = config.enable_oco
+        self.oco_manager: Optional[OCOManager] = None
+        if self.enable_oco:
+            try:
+                self.oco_manager = OCOManager(
+                    redis_host=config.oco_redis_host,
+                    redis_port=config.oco_redis_port,
+                    redis_db=config.oco_redis_db,
+                    redis_password=config.oco_redis_password,
+                    key_prefix="nautilus:deepseek:oco",
+                    group_ttl_hours=config.oco_group_ttl_hours,
+                    logger=self.log,
+                )
+                self.log.info(f"✅ OCO Manager initialized: {self.oco_manager}")
+            except Exception as e:
+                self.log.warning(f"⚠️ Failed to initialize OCO Manager: {e}")
+                self.oco_manager = None
+                self.enable_oco = False
 
         # Technical indicators manager
         sma_periods = config.sma_periods if config.sma_periods else [5, 20, 50]
@@ -334,6 +385,10 @@ class DeepSeekAIStrategy(Strategy):
 
         # Execute trade
         self._execute_trade(signal_data, price_data, technical_data, current_position)
+        
+        # OCO maintenance: cleanup orphan orders and expired groups
+        if self.enable_oco and self.oco_manager:
+            self._cleanup_oco_orphans()
 
     def _calculate_price_change(self) -> float:
         """Calculate price change percentage."""
@@ -401,6 +456,10 @@ class DeepSeekAIStrategy(Strategy):
         current_position : Dict or None
             Current position info
         """
+        # Store signal and technical data for SL/TP calculation
+        self.latest_signal_data = signal_data
+        self.latest_technical_data = technical_data
+        
         signal = signal_data['signal']
         confidence = signal_data['confidence']
 
@@ -622,13 +681,199 @@ class DeepSeekAIStrategy(Strategy):
             f"📤 Submitted {side.name} market order: {quantity:.3f} BTC "
             f"(reduce_only={reduce_only})"
         )
+    
+    def _submit_sl_tp_orders(
+        self,
+        entry_side: OrderSide,
+        entry_price: float,
+        quantity: float,
+    ):
+        """
+        Submit Stop Loss and Take Profit orders after position is opened.
+        
+        Parameters
+        ----------
+        entry_side : OrderSide
+            Side of the entry order (BUY or SELL)
+        entry_price : float
+            Entry price of the position
+        quantity : float
+            Quantity of the position
+        """
+        if not self.enable_auto_sl_tp:
+            self.log.debug("Auto SL/TP is disabled, skipping")
+            return
+        
+        if not self.latest_signal_data or not self.latest_technical_data:
+            self.log.warning("⚠️ No signal/technical data available for SL/TP calculation")
+            return
+        
+        # Get confidence and technical data
+        confidence = self.latest_signal_data.get('confidence', 'MEDIUM')
+        support = self.latest_technical_data.get('support', 0.0)
+        resistance = self.latest_technical_data.get('resistance', 0.0)
+        
+        # Determine exit side (opposite of entry)
+        exit_side = OrderSide.SELL if entry_side == OrderSide.BUY else OrderSide.BUY
+        
+        # Calculate Stop Loss price
+        if entry_side == OrderSide.BUY:
+            # BUY: Stop loss below support
+            if self.sl_use_support_resistance and support > 0:
+                stop_loss_price = support * (1 - self.sl_buffer_pct)
+                self.log.info(f"📍 Using support level for SL: ${support:,.2f} → ${stop_loss_price:,.2f}")
+            else:
+                stop_loss_price = entry_price * 0.98  # Default 2% below entry
+                self.log.info(f"📍 Using default 2% SL: ${stop_loss_price:,.2f}")
+        else:
+            # SELL: Stop loss above resistance
+            if self.sl_use_support_resistance and resistance > 0:
+                stop_loss_price = resistance * (1 + self.sl_buffer_pct)
+                self.log.info(f"📍 Using resistance level for SL: ${resistance:,.2f} → ${stop_loss_price:,.2f}")
+            else:
+                stop_loss_price = entry_price * 1.02  # Default 2% above entry
+                self.log.info(f"📍 Using default 2% SL: ${stop_loss_price:,.2f}")
+        
+        # Calculate Take Profit price based on confidence
+        tp_pct = self.tp_pct_config.get(confidence, 0.02)
+        if entry_side == OrderSide.BUY:
+            take_profit_price = entry_price * (1 + tp_pct)
+        else:
+            take_profit_price = entry_price * (1 - tp_pct)
+        
+        self.log.info(
+            f"🎯 Calculated SL/TP for {entry_side.name} position:\n"
+            f"   Entry: ${entry_price:,.2f}\n"
+            f"   Stop Loss: ${stop_loss_price:,.2f} ({((stop_loss_price/entry_price - 1) * 100):.2f}%)\n"
+            f"   Take Profit: ${take_profit_price:,.2f} ({((take_profit_price/entry_price - 1) * 100):.2f}%)\n"
+            f"   Confidence: {confidence} (TP: {tp_pct*100:.1f}%)"
+        )
+        
+        try:
+            # Submit Stop Loss order (STOP_MARKET)
+            sl_order = self.order_factory.stop_market(
+                instrument_id=self.instrument_id,
+                order_side=exit_side,
+                quantity=self.instrument.make_qty(quantity),
+                trigger_price=self.instrument.make_price(stop_loss_price),
+                trigger_type=TriggerType.LAST_TRADE,
+                reduce_only=True,
+            )
+            self.submit_order(sl_order)
+            self.log.info(f"🛡️ Submitted Stop Loss order @ ${stop_loss_price:,.2f}")
+            
+            # Submit Take Profit order (LIMIT)
+            tp_order = self.order_factory.limit(
+                instrument_id=self.instrument_id,
+                order_side=exit_side,
+                quantity=self.instrument.make_qty(quantity),
+                price=self.instrument.make_price(take_profit_price),
+                time_in_force=TimeInForce.GTC,
+                reduce_only=True,
+            )
+            self.submit_order(tp_order)
+            self.log.info(f"🎯 Submitted Take Profit order @ ${take_profit_price:,.2f}")
+            
+            # Register OCO group if enabled
+            if self.enable_oco and self.oco_manager:
+                import time
+                group_id = f"{entry_side.name}_{self.instrument_id}_{int(time.time())}"
+                
+                self.oco_manager.create_oco_group(
+                    group_id=group_id,
+                    sl_order_id=str(sl_order.client_order_id),
+                    tp_order_id=str(tp_order.client_order_id),
+                    instrument_id=str(self.instrument_id),
+                    entry_side=entry_side.name,
+                    entry_price=entry_price,
+                    quantity=quantity,
+                    sl_price=stop_loss_price,
+                    tp_price=take_profit_price,
+                    metadata={
+                        "confidence": confidence,
+                        "support": self.latest_technical_data.get('support', 0.0) if self.latest_technical_data else 0.0,
+                        "resistance": self.latest_technical_data.get('resistance', 0.0) if self.latest_technical_data else 0.0,
+                    }
+                )
+            
+        except Exception as e:
+            self.log.error(f"❌ Failed to submit SL/TP orders: {e}")
 
     def on_order_filled(self, event):
-        """Handle order filled events."""
+        """
+        Handle order filled events.
+        
+        Implements OCO logic: when one order fills, automatically cancel the peer order.
+        """
+        filled_order_id = str(event.client_order_id)
+        
         self.log.info(
             f"✅ Order filled: {event.order_side.name} "
-            f"{event.last_qty} @ {event.last_px}"
+            f"{event.last_qty} @ {event.last_px} "
+            f"(ID: {filled_order_id[:8]}...)"
         )
+        
+        # Check if this order belongs to an OCO group
+        if self.enable_oco and self.oco_manager:
+            group_id = self.oco_manager.find_group_by_order(filled_order_id)
+            
+            if group_id:
+                # This order is part of an OCO group
+                self.log.info(f"🔗 Order belongs to OCO group: {group_id}")
+                
+                # Mark as filled
+                self.oco_manager.mark_filled(group_id, filled_order_id)
+                
+                # Get the peer order that needs to be cancelled
+                peer_order_id = self.oco_manager.get_peer_order_id(group_id, filled_order_id)
+                
+                if peer_order_id:
+                    self._cancel_oco_peer_order(peer_order_id, group_id)
+                
+                # Clean up OCO group
+                self.oco_manager.remove_group(group_id)
+    
+    def _cancel_oco_peer_order(self, peer_order_id: str, group_id: str):
+        """
+        Cancel the peer order in an OCO group.
+        
+        Parameters
+        ----------
+        peer_order_id : str
+            Order ID to cancel
+        group_id : str
+            OCO group ID for logging
+        """
+        try:
+            # Find the order in cache
+            from nautilus_trader.model.identifiers import ClientOrderId
+            order_id_obj = ClientOrderId(peer_order_id)
+            order = self.cache.order(order_id_obj)
+            
+            if order:
+                if order.is_open:
+                    # Order is open, cancel it
+                    self.cancel_order(order)
+                    self.log.info(
+                        f"🔴 OCO: Auto-cancelled peer order {peer_order_id[:8]}... "
+                        f"from group [{group_id}]"
+                    )
+                elif order.is_canceled:
+                    self.log.debug(f"ℹ️ Peer order already cancelled: {peer_order_id[:8]}...")
+                elif order.is_closed:
+                    self.log.warning(
+                        f"⚠️ Peer order already closed: {peer_order_id[:8]}... "
+                        f"(status: {order.status.name})"
+                    )
+                else:
+                    self.log.debug(f"ℹ️ Peer order status: {order.status.name}")
+            else:
+                self.log.warning(f"⚠️ Peer order not found in cache: {peer_order_id[:8]}...")
+                
+        except Exception as e:
+            self.log.error(
+                f"❌ Failed to cancel OCO peer order {peer_order_id[:8]}...: {e}"
+            )
 
     def on_order_rejected(self, event):
         """Handle order rejected events."""
@@ -641,6 +886,14 @@ class DeepSeekAIStrategy(Strategy):
             f"🟢 Position opened: {event.side.name} "
             f"{event.quantity} @ {event.avg_px_open}"
         )
+        
+        # Submit Stop Loss and Take Profit orders
+        entry_side = OrderSide.BUY if event.side == PositionSide.LONG else OrderSide.SELL
+        self._submit_sl_tp_orders(
+            entry_side=entry_side,
+            entry_price=float(event.avg_px_open),
+            quantity=float(event.quantity),
+        )
 
     def on_position_closed(self, event):
         """Handle position closed events."""
@@ -649,3 +902,58 @@ class DeepSeekAIStrategy(Strategy):
             f"🔴 Position closed: {event.side.name} "
             f"P&L: {event.realized_pnl:.2f} USDT"
         )
+    
+    def _cleanup_oco_orphans(self):
+        """
+        Clean up orphan orders and expired OCO groups.
+        
+        This is a safety mechanism that runs periodically to:
+        1. Cancel orphan reduce-only orders when no position exists
+        2. Clean up expired OCO groups (older than TTL)
+        3. Log OCO statistics
+        """
+        try:
+            # Get current positions
+            positions = self.cache.positions_open(instrument_id=self.instrument_id)
+            has_position = len(positions) > 0
+            
+            if not has_position:
+                # No position but check for orphan orders
+                open_orders = self.cache.orders_open(instrument_id=self.instrument_id)
+                
+                if open_orders:
+                    orphan_count = 0
+                    for order in open_orders:
+                        if order.is_reduce_only:
+                            # This is a reduce-only order without a position - orphan!
+                            try:
+                                self.cancel_order(order)
+                                orphan_count += 1
+                                self.log.info(
+                                    f"🗑️ Cancelled orphan reduce-only order: "
+                                    f"{str(order.client_order_id)[:8]}..."
+                                )
+                            except Exception as e:
+                                self.log.error(
+                                    f"Failed to cancel orphan order: {e}"
+                                )
+                    
+                    if orphan_count > 0:
+                        self.log.warning(
+                            f"⚠️ Cleaned up {orphan_count} orphan orders"
+                        )
+            
+            # Clean up expired OCO groups
+            expired_count = self.oco_manager.cleanup_expired_groups()
+            
+            # Log OCO statistics periodically
+            stats = self.oco_manager.get_statistics()
+            if stats['total_groups'] > 0:
+                self.log.debug(
+                    f"📊 OCO Stats: Total={stats['total_groups']}, "
+                    f"Active={stats['active_groups']}, "
+                    f"Redis={'✅' if stats['redis_enabled'] else '❌'}"
+                )
+                
+        except Exception as e:
+            self.log.error(f"❌ OCO cleanup failed: {e}")
