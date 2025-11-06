@@ -96,6 +96,13 @@ class DeepSeekAIStrategyConfig(StrategyConfig, frozen=True):
     trailing_activation_pct: float = 0.01
     trailing_distance_pct: float = 0.005
     trailing_update_threshold_pct: float = 0.002
+    
+    # Partial Take Profit
+    enable_partial_tp: bool = True
+    partial_tp_levels: Tuple[Dict[str, float], ...] = (
+        {"profit_pct": 0.02, "position_pct": 0.5},
+        {"profit_pct": 0.04, "position_pct": 0.5},
+    )
 
     # Execution
     position_adjustment_threshold: float = 0.001
@@ -763,19 +770,67 @@ class DeepSeekAIStrategy(Strategy):
                 stop_loss_price = entry_price * 1.02  # Default 2% above entry
                 self.log.info(f"📍 Using default 2% SL: ${stop_loss_price:,.2f}")
         
-        # Calculate Take Profit price based on confidence
-        tp_pct = self.tp_pct_config.get(confidence, 0.02)
-        if entry_side == OrderSide.BUY:
-            take_profit_price = entry_price * (1 + tp_pct)
-        else:
-            take_profit_price = entry_price * (1 - tp_pct)
+        # Prepare Take Profit levels
+        tp_orders_info = []
         
+        if self.enable_partial_tp and len(self.partial_tp_levels) > 0:
+            # Use partial take profit levels
+            self.log.info(f"📊 Using Partial Take Profit with {len(self.partial_tp_levels)} levels")
+            
+            remaining_qty = quantity
+            for i, level in enumerate(self.partial_tp_levels):
+                profit_pct = level["profit_pct"]
+                position_pct = level["position_pct"]
+                
+                # Calculate price for this level
+                if entry_side == OrderSide.BUY:
+                    tp_price = entry_price * (1 + profit_pct)
+                else:
+                    tp_price = entry_price * (1 - profit_pct)
+                
+                # Calculate quantity for this level
+                level_qty = quantity * position_pct
+                
+                tp_orders_info.append({
+                    "price": tp_price,
+                    "quantity": level_qty,
+                    "profit_pct": profit_pct,
+                    "position_pct": position_pct,
+                    "level": i + 1
+                })
+                
+                remaining_qty -= level_qty
+            
+            # Log partial TP plan
+            self.log.info("📋 Partial Take Profit Plan:")
+            for info in tp_orders_info:
+                self.log.info(
+                    f"   Level {info['level']}: {info['position_pct']*100:.0f}% @ "
+                    f"${info['price']:,.2f} (+{info['profit_pct']*100:.1f}%)"
+                )
+        else:
+            # Use single take profit based on confidence
+            tp_pct = self.tp_pct_config.get(confidence, 0.02)
+            if entry_side == OrderSide.BUY:
+                tp_price = entry_price * (1 + tp_pct)
+            else:
+                tp_price = entry_price * (1 - tp_pct)
+            
+            tp_orders_info.append({
+                "price": tp_price,
+                "quantity": quantity,
+                "profit_pct": tp_pct,
+                "position_pct": 1.0,
+                "level": 1
+            })
+        
+        # Log SL/TP summary
         self.log.info(
             f"🎯 Calculated SL/TP for {entry_side.name} position:\n"
             f"   Entry: ${entry_price:,.2f}\n"
             f"   Stop Loss: ${stop_loss_price:,.2f} ({((stop_loss_price/entry_price - 1) * 100):.2f}%)\n"
-            f"   Take Profit: ${take_profit_price:,.2f} ({((take_profit_price/entry_price - 1) * 100):.2f}%)\n"
-            f"   Confidence: {confidence} (TP: {tp_pct*100:.1f}%)"
+            f"   Take Profit Levels: {len(tp_orders_info)}\n"
+            f"   Confidence: {confidence}"
         )
         
         try:
@@ -791,17 +846,24 @@ class DeepSeekAIStrategy(Strategy):
             self.submit_order(sl_order)
             self.log.info(f"🛡️ Submitted Stop Loss order @ ${stop_loss_price:,.2f}")
             
-            # Submit Take Profit order (LIMIT)
-            tp_order = self.order_factory.limit(
-                instrument_id=self.instrument_id,
-                order_side=exit_side,
-                quantity=self.instrument.make_qty(quantity),
-                price=self.instrument.make_price(take_profit_price),
-                time_in_force=TimeInForce.GTC,
-                reduce_only=True,
-            )
-            self.submit_order(tp_order)
-            self.log.info(f"🎯 Submitted Take Profit order @ ${take_profit_price:,.2f}")
+            # Submit Take Profit orders (LIMIT)
+            tp_order_ids = []
+            for tp_info in tp_orders_info:
+                tp_order = self.order_factory.limit(
+                    instrument_id=self.instrument_id,
+                    order_side=exit_side,
+                    quantity=self.instrument.make_qty(tp_info["quantity"]),
+                    price=self.instrument.make_price(tp_info["price"]),
+                    time_in_force=TimeInForce.GTC,
+                    reduce_only=True,
+                )
+                self.submit_order(tp_order)
+                tp_order_ids.append(str(tp_order.client_order_id))
+                
+                self.log.info(
+                    f"🎯 Submitted TP Level {tp_info['level']}: "
+                    f"{tp_info['position_pct']*100:.0f}% @ ${tp_info['price']:,.2f}"
+                )
             
             # Save SL order ID for trailing stop
             if self.enable_trailing_stop:
@@ -813,27 +875,35 @@ class DeepSeekAIStrategy(Strategy):
                         f"📌 Saved SL order ID for trailing stop: {str(sl_order.client_order_id)[:8]}..."
                     )
             
-            # Register OCO group if enabled
+            # Register OCO group if enabled (with multiple TP orders)
             if self.enable_oco and self.oco_manager:
                 import time
                 group_id = f"{entry_side.name}_{self.instrument_id}_{int(time.time())}"
                 
+                # Store multiple TP order IDs
+                tp_order_id_str = ",".join(tp_order_ids)  # Join multiple IDs with comma
+                
                 self.oco_manager.create_oco_group(
                     group_id=group_id,
                     sl_order_id=str(sl_order.client_order_id),
-                    tp_order_id=str(tp_order.client_order_id),
+                    tp_order_id=tp_order_id_str,  # Can contain multiple IDs
                     instrument_id=str(self.instrument_id),
                     entry_side=entry_side.name,
                     entry_price=entry_price,
                     quantity=quantity,
                     sl_price=stop_loss_price,
-                    tp_price=take_profit_price,
+                    tp_price=tp_orders_info[0]["price"],  # First TP level for reference
                     metadata={
                         "confidence": confidence,
                         "support": self.latest_technical_data.get('support', 0.0) if self.latest_technical_data else 0.0,
                         "resistance": self.latest_technical_data.get('resistance', 0.0) if self.latest_technical_data else 0.0,
+                        "partial_tp": self.enable_partial_tp,
+                        "tp_levels": len(tp_orders_info),
+                        "tp_order_ids": tp_order_ids,  # Store as list in metadata
                     }
                 )
+                
+                self.log.debug(f"🔗 Registered OCO group: {group_id} (1 SL + {len(tp_order_ids)} TP orders)")
             
         except Exception as e:
             self.log.error(f"❌ Failed to submit SL/TP orders: {e}")
@@ -863,12 +933,45 @@ class DeepSeekAIStrategy(Strategy):
                 # Mark as filled
                 self.oco_manager.mark_filled(group_id, filled_order_id)
                 
-                # Get the peer order that needs to be cancelled
-                peer_order_id = self.oco_manager.get_peer_order_id(group_id, filled_order_id)
+                # Get the group data to find all related orders
+                group_data = self.oco_manager.get_group(group_id)
                 
-                if peer_order_id:
-                    self._cancel_oco_peer_order(peer_order_id, group_id)
-                
+                if group_data:
+                    # Collect all order IDs in this group
+                    all_order_ids = []
+                    
+                    # Add SL order
+                    sl_order_id = group_data.get("sl_order_id")
+                    if sl_order_id:
+                        all_order_ids.append(sl_order_id)
+                    
+                    # Add TP order(s) - can be single ID or comma-separated IDs
+                    tp_order_id_str = group_data.get("tp_order_id", "")
+                    if tp_order_id_str:
+                        if "," in tp_order_id_str:
+                            # Multiple TP orders
+                            all_order_ids.extend(tp_order_id_str.split(","))
+                        else:
+                            # Single TP order
+                            all_order_ids.append(tp_order_id_str)
+                    
+                    # Also check metadata for tp_order_ids list
+                    metadata = group_data.get("metadata", {})
+                    if isinstance(metadata, dict):
+                        tp_order_ids_list = metadata.get("tp_order_ids", [])
+                        if tp_order_ids_list:
+                            all_order_ids.extend(tp_order_ids_list)
+                    
+                    # Remove duplicates and the filled order itself
+                    orders_to_cancel = list(set(all_order_ids))
+                    orders_to_cancel = [oid for oid in orders_to_cancel if oid != filled_order_id]
+                    
+                    # Cancel all peer orders
+                    if orders_to_cancel:
+                        self.log.info(f"🔴 OCO: Cancelling {len(orders_to_cancel)} peer orders")
+                        for peer_order_id in orders_to_cancel:
+                            self._cancel_oco_peer_order(peer_order_id, group_id)
+                    
                 # Clean up OCO group
                 self.oco_manager.remove_group(group_id)
     
