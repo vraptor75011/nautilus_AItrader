@@ -90,6 +90,12 @@ class DeepSeekAIStrategyConfig(StrategyConfig, frozen=True):
     oco_redis_db: int = 0
     oco_redis_password: Optional[str] = None
     oco_group_ttl_hours: int = 24
+    
+    # Trailing Stop Loss
+    enable_trailing_stop: bool = True
+    trailing_activation_pct: float = 0.01
+    trailing_distance_pct: float = 0.005
+    trailing_update_threshold_pct: float = 0.002
 
     # Execution
     position_adjustment_threshold: float = 0.001
@@ -176,6 +182,25 @@ class DeepSeekAIStrategy(Strategy):
                 self.log.warning(f"⚠️ Failed to initialize OCO Manager: {e}")
                 self.oco_manager = None
                 self.enable_oco = False
+        
+        # Trailing Stop Loss
+        self.enable_trailing_stop = config.enable_trailing_stop
+        self.trailing_activation_pct = config.trailing_activation_pct
+        self.trailing_distance_pct = config.trailing_distance_pct
+        self.trailing_update_threshold_pct = config.trailing_update_threshold_pct
+        
+        # Track trailing stop state for each position
+        self.trailing_stop_state: Dict[str, Dict[str, Any]] = {}
+        # Format: {
+        #   "instrument_id": {
+        #       "entry_price": float,
+        #       "highest_price": float (for LONG) or "lowest_price": float (for SHORT),
+        #       "current_sl_price": float,
+        #       "sl_order_id": str,
+        #       "activated": bool,
+        #       "side": str (LONG/SHORT)
+        #   }
+        # }
 
         # Technical indicators manager
         sma_periods = config.sma_periods if config.sma_periods else [5, 20, 50]
@@ -389,6 +414,10 @@ class DeepSeekAIStrategy(Strategy):
         # OCO maintenance: cleanup orphan orders and expired groups
         if self.enable_oco and self.oco_manager:
             self._cleanup_oco_orphans()
+        
+        # Trailing stop maintenance: check and update trailing stops
+        if self.enable_trailing_stop:
+            self._update_trailing_stops(price_data['price'])
 
     def _calculate_price_change(self) -> float:
         """Calculate price change percentage."""
@@ -774,6 +803,16 @@ class DeepSeekAIStrategy(Strategy):
             self.submit_order(tp_order)
             self.log.info(f"🎯 Submitted Take Profit order @ ${take_profit_price:,.2f}")
             
+            # Save SL order ID for trailing stop
+            if self.enable_trailing_stop:
+                instrument_key = str(self.instrument_id)
+                if instrument_key in self.trailing_stop_state:
+                    self.trailing_stop_state[instrument_key]["sl_order_id"] = str(sl_order.client_order_id)
+                    self.trailing_stop_state[instrument_key]["current_sl_price"] = stop_loss_price
+                    self.log.debug(
+                        f"📌 Saved SL order ID for trailing stop: {str(sl_order.client_order_id)[:8]}..."
+                    )
+            
             # Register OCO group if enabled
             if self.enable_oco and self.oco_manager:
                 import time
@@ -894,14 +933,39 @@ class DeepSeekAIStrategy(Strategy):
             entry_price=float(event.avg_px_open),
             quantity=float(event.quantity),
         )
+        
+        # Initialize trailing stop state if enabled
+        if self.enable_trailing_stop:
+            instrument_key = str(self.instrument_id)
+            entry_price = float(event.avg_px_open)
+            
+            self.trailing_stop_state[instrument_key] = {
+                "entry_price": entry_price,
+                "highest_price": entry_price if event.side == PositionSide.LONG else None,
+                "lowest_price": entry_price if event.side == PositionSide.SHORT else None,
+                "current_sl_price": None,  # Will be set after SL order is submitted
+                "sl_order_id": None,  # Will be set after SL order is submitted
+                "activated": False,
+                "side": event.side.name,
+                "quantity": float(event.quantity),
+            }
+            self.log.info(
+                f"📊 Trailing stop initialized for {event.side.name} position @ ${entry_price:,.2f}"
+            )
 
     def on_position_closed(self, event):
         """Handle position closed events."""
-        # PositionClosed event contains position data directly
+        # PositionOpened event contains position data directly
         self.log.info(
             f"🔴 Position closed: {event.side.name} "
             f"P&L: {event.realized_pnl:.2f} USDT"
         )
+        
+        # Clear trailing stop state
+        instrument_key = str(self.instrument_id)
+        if instrument_key in self.trailing_stop_state:
+            del self.trailing_stop_state[instrument_key]
+            self.log.debug(f"🗑️ Cleared trailing stop state for {instrument_key}")
     
     def _cleanup_oco_orphans(self):
         """
@@ -957,3 +1021,204 @@ class DeepSeekAIStrategy(Strategy):
                 
         except Exception as e:
             self.log.error(f"❌ OCO cleanup failed: {e}")
+    
+    def _update_trailing_stops(self, current_price: float):
+        """
+        Update trailing stop loss orders based on current price.
+        
+        Logic:
+        1. Check if position is profitable enough to activate trailing stop
+        2. Track highest price (LONG) or lowest price (SHORT)
+        3. Update stop loss when price moves favorably beyond threshold
+        4. Stop loss only moves in favorable direction, never backwards
+        
+        Parameters
+        ----------
+        current_price : float
+            Current market price
+        """
+        try:
+            instrument_key = str(self.instrument_id)
+            
+            # Check if we have trailing stop state for this instrument
+            if instrument_key not in self.trailing_stop_state:
+                return
+            
+            state = self.trailing_stop_state[instrument_key]
+            entry_price = state["entry_price"]
+            side = state["side"]
+            activated = state["activated"]
+            
+            # Calculate profit percentage
+            if side == "LONG":
+                profit_pct = (current_price - entry_price) / entry_price
+                
+                # Update highest price
+                if state["highest_price"] is None or current_price > state["highest_price"]:
+                    state["highest_price"] = current_price
+                
+                highest_price = state["highest_price"]
+                
+                # Check if we should activate trailing stop
+                if not activated and profit_pct >= self.trailing_activation_pct:
+                    state["activated"] = True
+                    self.log.info(
+                        f"🎯 Trailing stop ACTIVATED for LONG @ ${current_price:,.2f} "
+                        f"(Profit: {profit_pct*100:.2f}%)"
+                    )
+                    activated = True
+                
+                # If activated, check if we should update stop loss
+                if activated:
+                    # Calculate new stop loss based on highest price
+                    new_sl_price = highest_price * (1 - self.trailing_distance_pct)
+                    current_sl_price = state["current_sl_price"]
+                    
+                    # Only update if new SL is significantly higher than current
+                    if current_sl_price is None:
+                        should_update = True
+                    else:
+                        price_move_pct = (new_sl_price - current_sl_price) / current_sl_price
+                        should_update = price_move_pct >= self.trailing_update_threshold_pct
+                    
+                    if should_update and new_sl_price > current_sl_price:
+                        self._execute_trailing_stop_update(
+                            instrument_key=instrument_key,
+                            new_sl_price=new_sl_price,
+                            current_price=current_price,
+                            side="LONG"
+                        )
+            
+            elif side == "SHORT":
+                profit_pct = (entry_price - current_price) / entry_price
+                
+                # Update lowest price
+                if state["lowest_price"] is None or current_price < state["lowest_price"]:
+                    state["lowest_price"] = current_price
+                
+                lowest_price = state["lowest_price"]
+                
+                # Check if we should activate trailing stop
+                if not activated and profit_pct >= self.trailing_activation_pct:
+                    state["activated"] = True
+                    self.log.info(
+                        f"🎯 Trailing stop ACTIVATED for SHORT @ ${current_price:,.2f} "
+                        f"(Profit: {profit_pct*100:.2f}%)"
+                    )
+                    activated = True
+                
+                # If activated, check if we should update stop loss
+                if activated:
+                    # Calculate new stop loss based on lowest price
+                    new_sl_price = lowest_price * (1 + self.trailing_distance_pct)
+                    current_sl_price = state["current_sl_price"]
+                    
+                    # Only update if new SL is significantly lower than current
+                    if current_sl_price is None:
+                        should_update = True
+                    else:
+                        price_move_pct = (current_sl_price - new_sl_price) / current_sl_price
+                        should_update = price_move_pct >= self.trailing_update_threshold_pct
+                    
+                    if should_update and new_sl_price < current_sl_price:
+                        self._execute_trailing_stop_update(
+                            instrument_key=instrument_key,
+                            new_sl_price=new_sl_price,
+                            current_price=current_price,
+                            side="SHORT"
+                        )
+                        
+        except Exception as e:
+            self.log.error(f"❌ Trailing stop update failed: {e}")
+    
+    def _execute_trailing_stop_update(
+        self,
+        instrument_key: str,
+        new_sl_price: float,
+        current_price: float,
+        side: str
+    ):
+        """
+        Execute the actual update of trailing stop loss order.
+        
+        Parameters
+        ----------
+        instrument_key : str
+            Instrument identifier
+        new_sl_price : float
+            New stop loss price
+        current_price : float
+            Current market price
+        side : str
+            Position side (LONG/SHORT)
+        """
+        try:
+            state = self.trailing_stop_state[instrument_key]
+            old_sl_price = state["current_sl_price"]
+            old_sl_order_id = state["sl_order_id"]
+            quantity = state["quantity"]
+            
+            # Log the update
+            if old_sl_price:
+                move_pct = ((new_sl_price - old_sl_price) / old_sl_price) * 100
+                self.log.info(
+                    f"⬆️ Trailing Stop Update ({side}):\n"
+                    f"   Current Price: ${current_price:,.2f}\n"
+                    f"   Old SL: ${old_sl_price:,.2f}\n"
+                    f"   New SL: ${new_sl_price:,.2f} ({move_pct:+.2f}%)\n"
+                    f"   Distance: {abs((new_sl_price - current_price) / current_price * 100):.2f}%"
+                )
+            else:
+                self.log.info(
+                    f"📍 Initial Trailing Stop ({side}):\n"
+                    f"   Current Price: ${current_price:,.2f}\n"
+                    f"   SL Price: ${new_sl_price:,.2f}\n"
+                    f"   Distance: {abs((new_sl_price - current_price) / current_price * 100):.2f}%"
+                )
+            
+            # Cancel old stop loss order if it exists
+            if old_sl_order_id:
+                try:
+                    from nautilus_trader.model.identifiers import ClientOrderId
+                    old_order_id_obj = ClientOrderId(old_sl_order_id)
+                    old_order = self.cache.order(old_order_id_obj)
+                    
+                    if old_order and old_order.is_open:
+                        self.cancel_order(old_order)
+                        self.log.debug(f"🔴 Cancelled old SL order: {old_sl_order_id[:8]}...")
+                except Exception as e:
+                    self.log.warning(f"⚠️ Failed to cancel old SL order: {e}")
+            
+            # Submit new stop loss order
+            exit_side = OrderSide.SELL if side == "LONG" else OrderSide.BUY
+            
+            new_sl_order = self.order_factory.stop_market(
+                instrument_id=self.instrument_id,
+                order_side=exit_side,
+                quantity=self.instrument.make_qty(quantity),
+                trigger_price=self.instrument.make_price(new_sl_price),
+                trigger_type=TriggerType.LAST_TRADE,
+                reduce_only=True,
+            )
+            self.submit_order(new_sl_order)
+            
+            # Update state
+            state["current_sl_price"] = new_sl_price
+            state["sl_order_id"] = str(new_sl_order.client_order_id)
+            
+            self.log.info(f"✅ New trailing SL order submitted @ ${new_sl_price:,.2f}")
+            
+            # Update OCO group if enabled
+            if self.enable_oco and self.oco_manager and old_sl_order_id:
+                # Find and update OCO group
+                group_id = self.oco_manager.find_group_by_order(old_sl_order_id)
+                if group_id:
+                    group_data = self.oco_manager.get_group(group_id)
+                    if group_data:
+                        # Update SL order ID in OCO group
+                        self.oco_manager.oco_groups[group_id]["sl_order_id"] = str(new_sl_order.client_order_id)
+                        self.oco_manager.oco_groups[group_id]["sl_price"] = new_sl_price
+                        self.log.debug(f"🔄 Updated OCO group [{group_id}] with new SL order")
+                        
+        except Exception as e:
+            self.log.error(f"❌ Failed to execute trailing stop update: {e}")
