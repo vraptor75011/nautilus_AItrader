@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.trading.strategy import Strategy
 from nautilus_trader.model.data import Bar, BarType
-from nautilus_trader.model.enums import OrderSide, TimeInForce, PositionSide, PriceType
+from nautilus_trader.model.enums import OrderSide, TimeInForce, PositionSide, PriceType, TriggerType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.position import Position
@@ -25,6 +25,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from indicators.technical_manager import TechnicalIndicatorManager
 from utils.deepseek_client import DeepSeekAnalyzer
 from utils.sentiment_client import SentimentDataFetcher
+from utils.oco_manager import OCOManager
 
 
 class DeepSeekAIStrategyConfig(StrategyConfig, frozen=True):
@@ -73,6 +74,35 @@ class DeepSeekAIStrategyConfig(StrategyConfig, frozen=True):
     rsi_extreme_threshold_upper: float = 75.0
     rsi_extreme_threshold_lower: float = 25.0
     rsi_extreme_multiplier: float = 0.7
+    
+    # Stop Loss & Take Profit
+    enable_auto_sl_tp: bool = True
+    sl_use_support_resistance: bool = True
+    sl_buffer_pct: float = 0.001
+    tp_high_confidence_pct: float = 0.03
+    tp_medium_confidence_pct: float = 0.02
+    tp_low_confidence_pct: float = 0.01
+    
+    # OCO (One-Cancels-the-Other)
+    enable_oco: bool = True
+    oco_redis_host: str = "localhost"
+    oco_redis_port: int = 6379
+    oco_redis_db: int = 0
+    oco_redis_password: Optional[str] = None
+    oco_group_ttl_hours: int = 24
+    
+    # Trailing Stop Loss
+    enable_trailing_stop: bool = True
+    trailing_activation_pct: float = 0.01
+    trailing_distance_pct: float = 0.005
+    trailing_update_threshold_pct: float = 0.002
+    
+    # Partial Take Profit
+    enable_partial_tp: bool = True
+    partial_tp_levels: Tuple[Dict[str, float], ...] = (
+        {"profit_pct": 0.02, "position_pct": 0.5},
+        {"profit_pct": 0.04, "position_pct": 0.5},
+    )
 
     # Execution
     position_adjustment_threshold: float = 0.001
@@ -125,6 +155,59 @@ class DeepSeekAIStrategy(Strategy):
         self.rsi_extreme_upper = config.rsi_extreme_threshold_upper
         self.rsi_extreme_lower = config.rsi_extreme_threshold_lower
         self.rsi_extreme_mult = config.rsi_extreme_multiplier
+        
+        # Stop Loss & Take Profit
+        self.enable_auto_sl_tp = config.enable_auto_sl_tp
+        self.sl_use_support_resistance = config.sl_use_support_resistance
+        self.sl_buffer_pct = config.sl_buffer_pct
+        self.tp_pct_config = {
+            'HIGH': config.tp_high_confidence_pct,
+            'MEDIUM': config.tp_medium_confidence_pct,
+            'LOW': config.tp_low_confidence_pct,
+        }
+        
+        # Store latest signal and technical data for SL/TP calculation
+        self.latest_signal_data: Optional[Dict[str, Any]] = None
+        self.latest_technical_data: Optional[Dict[str, Any]] = None
+        
+        # OCO (One-Cancels-the-Other) Manager
+        self.enable_oco = config.enable_oco
+        self.oco_manager: Optional[OCOManager] = None
+        if self.enable_oco:
+            try:
+                self.oco_manager = OCOManager(
+                    redis_host=config.oco_redis_host,
+                    redis_port=config.oco_redis_port,
+                    redis_db=config.oco_redis_db,
+                    redis_password=config.oco_redis_password,
+                    key_prefix="nautilus:deepseek:oco",
+                    group_ttl_hours=config.oco_group_ttl_hours,
+                    logger=self.log,
+                )
+                self.log.info(f"✅ OCO Manager initialized: {self.oco_manager}")
+            except Exception as e:
+                self.log.warning(f"⚠️ Failed to initialize OCO Manager: {e}")
+                self.oco_manager = None
+                self.enable_oco = False
+        
+        # Trailing Stop Loss
+        self.enable_trailing_stop = config.enable_trailing_stop
+        self.trailing_activation_pct = config.trailing_activation_pct
+        self.trailing_distance_pct = config.trailing_distance_pct
+        self.trailing_update_threshold_pct = config.trailing_update_threshold_pct
+        
+        # Track trailing stop state for each position
+        self.trailing_stop_state: Dict[str, Dict[str, Any]] = {}
+        # Format: {
+        #   "instrument_id": {
+        #       "entry_price": float,
+        #       "highest_price": float (for LONG) or "lowest_price": float (for SHORT),
+        #       "current_sl_price": float,
+        #       "sl_order_id": str,
+        #       "activated": bool,
+        #       "side": str (LONG/SHORT)
+        #   }
+        # }
 
         # Technical indicators manager
         sma_periods = config.sma_periods if config.sma_periods else [5, 20, 50]
@@ -334,6 +417,14 @@ class DeepSeekAIStrategy(Strategy):
 
         # Execute trade
         self._execute_trade(signal_data, price_data, technical_data, current_position)
+        
+        # OCO maintenance: cleanup orphan orders and expired groups
+        if self.enable_oco and self.oco_manager:
+            self._cleanup_oco_orphans()
+        
+        # Trailing stop maintenance: check and update trailing stops
+        if self.enable_trailing_stop:
+            self._update_trailing_stops(price_data['price'])
 
     def _calculate_price_change(self) -> float:
         """Calculate price change percentage."""
@@ -401,6 +492,10 @@ class DeepSeekAIStrategy(Strategy):
         current_position : Dict or None
             Current position info
         """
+        # Store signal and technical data for SL/TP calculation
+        self.latest_signal_data = signal_data
+        self.latest_technical_data = technical_data
+        
         signal = signal_data['signal']
         confidence = signal_data['confidence']
 
@@ -622,13 +717,305 @@ class DeepSeekAIStrategy(Strategy):
             f"📤 Submitted {side.name} market order: {quantity:.3f} BTC "
             f"(reduce_only={reduce_only})"
         )
+    
+    def _submit_sl_tp_orders(
+        self,
+        entry_side: OrderSide,
+        entry_price: float,
+        quantity: float,
+    ):
+        """
+        Submit Stop Loss and Take Profit orders after position is opened.
+        
+        Parameters
+        ----------
+        entry_side : OrderSide
+            Side of the entry order (BUY or SELL)
+        entry_price : float
+            Entry price of the position
+        quantity : float
+            Quantity of the position
+        """
+        if not self.enable_auto_sl_tp:
+            self.log.debug("Auto SL/TP is disabled, skipping")
+            return
+        
+        if not self.latest_signal_data or not self.latest_technical_data:
+            self.log.warning("⚠️ No signal/technical data available for SL/TP calculation")
+            return
+        
+        # Get confidence and technical data
+        confidence = self.latest_signal_data.get('confidence', 'MEDIUM')
+        support = self.latest_technical_data.get('support', 0.0)
+        resistance = self.latest_technical_data.get('resistance', 0.0)
+        
+        # Determine exit side (opposite of entry)
+        exit_side = OrderSide.SELL if entry_side == OrderSide.BUY else OrderSide.BUY
+        
+        # Calculate Stop Loss price
+        if entry_side == OrderSide.BUY:
+            # BUY: Stop loss below support
+            if self.sl_use_support_resistance and support > 0:
+                stop_loss_price = support * (1 - self.sl_buffer_pct)
+                self.log.info(f"📍 Using support level for SL: ${support:,.2f} → ${stop_loss_price:,.2f}")
+            else:
+                stop_loss_price = entry_price * 0.98  # Default 2% below entry
+                self.log.info(f"📍 Using default 2% SL: ${stop_loss_price:,.2f}")
+        else:
+            # SELL: Stop loss above resistance
+            if self.sl_use_support_resistance and resistance > 0:
+                stop_loss_price = resistance * (1 + self.sl_buffer_pct)
+                self.log.info(f"📍 Using resistance level for SL: ${resistance:,.2f} → ${stop_loss_price:,.2f}")
+            else:
+                stop_loss_price = entry_price * 1.02  # Default 2% above entry
+                self.log.info(f"📍 Using default 2% SL: ${stop_loss_price:,.2f}")
+        
+        # Prepare Take Profit levels
+        tp_orders_info = []
+        
+        if self.enable_partial_tp and len(self.partial_tp_levels) > 0:
+            # Use partial take profit levels
+            self.log.info(f"📊 Using Partial Take Profit with {len(self.partial_tp_levels)} levels")
+            
+            remaining_qty = quantity
+            for i, level in enumerate(self.partial_tp_levels):
+                profit_pct = level["profit_pct"]
+                position_pct = level["position_pct"]
+                
+                # Calculate price for this level
+                if entry_side == OrderSide.BUY:
+                    tp_price = entry_price * (1 + profit_pct)
+                else:
+                    tp_price = entry_price * (1 - profit_pct)
+                
+                # Calculate quantity for this level
+                level_qty = quantity * position_pct
+                
+                tp_orders_info.append({
+                    "price": tp_price,
+                    "quantity": level_qty,
+                    "profit_pct": profit_pct,
+                    "position_pct": position_pct,
+                    "level": i + 1
+                })
+                
+                remaining_qty -= level_qty
+            
+            # Log partial TP plan
+            self.log.info("📋 Partial Take Profit Plan:")
+            for info in tp_orders_info:
+                self.log.info(
+                    f"   Level {info['level']}: {info['position_pct']*100:.0f}% @ "
+                    f"${info['price']:,.2f} (+{info['profit_pct']*100:.1f}%)"
+                )
+        else:
+            # Use single take profit based on confidence
+            tp_pct = self.tp_pct_config.get(confidence, 0.02)
+            if entry_side == OrderSide.BUY:
+                tp_price = entry_price * (1 + tp_pct)
+            else:
+                tp_price = entry_price * (1 - tp_pct)
+            
+            tp_orders_info.append({
+                "price": tp_price,
+                "quantity": quantity,
+                "profit_pct": tp_pct,
+                "position_pct": 1.0,
+                "level": 1
+            })
+        
+        # Log SL/TP summary
+        self.log.info(
+            f"🎯 Calculated SL/TP for {entry_side.name} position:\n"
+            f"   Entry: ${entry_price:,.2f}\n"
+            f"   Stop Loss: ${stop_loss_price:,.2f} ({((stop_loss_price/entry_price - 1) * 100):.2f}%)\n"
+            f"   Take Profit Levels: {len(tp_orders_info)}\n"
+            f"   Confidence: {confidence}"
+        )
+        
+        try:
+            # Submit Stop Loss order (STOP_MARKET)
+            sl_order = self.order_factory.stop_market(
+                instrument_id=self.instrument_id,
+                order_side=exit_side,
+                quantity=self.instrument.make_qty(quantity),
+                trigger_price=self.instrument.make_price(stop_loss_price),
+                trigger_type=TriggerType.LAST_TRADE,
+                reduce_only=True,
+            )
+            self.submit_order(sl_order)
+            self.log.info(f"🛡️ Submitted Stop Loss order @ ${stop_loss_price:,.2f}")
+            
+            # Submit Take Profit orders (LIMIT)
+            tp_order_ids = []
+            for tp_info in tp_orders_info:
+                tp_order = self.order_factory.limit(
+                    instrument_id=self.instrument_id,
+                    order_side=exit_side,
+                    quantity=self.instrument.make_qty(tp_info["quantity"]),
+                    price=self.instrument.make_price(tp_info["price"]),
+                    time_in_force=TimeInForce.GTC,
+                    reduce_only=True,
+                )
+                self.submit_order(tp_order)
+                tp_order_ids.append(str(tp_order.client_order_id))
+                
+                self.log.info(
+                    f"🎯 Submitted TP Level {tp_info['level']}: "
+                    f"{tp_info['position_pct']*100:.0f}% @ ${tp_info['price']:,.2f}"
+                )
+            
+            # Save SL order ID for trailing stop
+            if self.enable_trailing_stop:
+                instrument_key = str(self.instrument_id)
+                if instrument_key in self.trailing_stop_state:
+                    self.trailing_stop_state[instrument_key]["sl_order_id"] = str(sl_order.client_order_id)
+                    self.trailing_stop_state[instrument_key]["current_sl_price"] = stop_loss_price
+                    self.log.debug(
+                        f"📌 Saved SL order ID for trailing stop: {str(sl_order.client_order_id)[:8]}..."
+                    )
+            
+            # Register OCO group if enabled (with multiple TP orders)
+            if self.enable_oco and self.oco_manager:
+                import time
+                group_id = f"{entry_side.name}_{self.instrument_id}_{int(time.time())}"
+                
+                # Store multiple TP order IDs
+                tp_order_id_str = ",".join(tp_order_ids)  # Join multiple IDs with comma
+                
+                self.oco_manager.create_oco_group(
+                    group_id=group_id,
+                    sl_order_id=str(sl_order.client_order_id),
+                    tp_order_id=tp_order_id_str,  # Can contain multiple IDs
+                    instrument_id=str(self.instrument_id),
+                    entry_side=entry_side.name,
+                    entry_price=entry_price,
+                    quantity=quantity,
+                    sl_price=stop_loss_price,
+                    tp_price=tp_orders_info[0]["price"],  # First TP level for reference
+                    metadata={
+                        "confidence": confidence,
+                        "support": self.latest_technical_data.get('support', 0.0) if self.latest_technical_data else 0.0,
+                        "resistance": self.latest_technical_data.get('resistance', 0.0) if self.latest_technical_data else 0.0,
+                        "partial_tp": self.enable_partial_tp,
+                        "tp_levels": len(tp_orders_info),
+                        "tp_order_ids": tp_order_ids,  # Store as list in metadata
+                    }
+                )
+                
+                self.log.debug(f"🔗 Registered OCO group: {group_id} (1 SL + {len(tp_order_ids)} TP orders)")
+            
+        except Exception as e:
+            self.log.error(f"❌ Failed to submit SL/TP orders: {e}")
 
     def on_order_filled(self, event):
-        """Handle order filled events."""
+        """
+        Handle order filled events.
+        
+        Implements OCO logic: when one order fills, automatically cancel the peer order.
+        """
+        filled_order_id = str(event.client_order_id)
+        
         self.log.info(
             f"✅ Order filled: {event.order_side.name} "
-            f"{event.last_qty} @ {event.last_px}"
+            f"{event.last_qty} @ {event.last_px} "
+            f"(ID: {filled_order_id[:8]}...)"
         )
+        
+        # Check if this order belongs to an OCO group
+        if self.enable_oco and self.oco_manager:
+            group_id = self.oco_manager.find_group_by_order(filled_order_id)
+            
+            if group_id:
+                # This order is part of an OCO group
+                self.log.info(f"🔗 Order belongs to OCO group: {group_id}")
+                
+                # Mark as filled
+                self.oco_manager.mark_filled(group_id, filled_order_id)
+                
+                # Get the group data to find all related orders
+                group_data = self.oco_manager.get_group(group_id)
+                
+                if group_data:
+                    # Collect all order IDs in this group
+                    all_order_ids = []
+                    
+                    # Add SL order
+                    sl_order_id = group_data.get("sl_order_id")
+                    if sl_order_id:
+                        all_order_ids.append(sl_order_id)
+                    
+                    # Add TP order(s) - can be single ID or comma-separated IDs
+                    tp_order_id_str = group_data.get("tp_order_id", "")
+                    if tp_order_id_str:
+                        if "," in tp_order_id_str:
+                            # Multiple TP orders
+                            all_order_ids.extend(tp_order_id_str.split(","))
+                        else:
+                            # Single TP order
+                            all_order_ids.append(tp_order_id_str)
+                    
+                    # Also check metadata for tp_order_ids list
+                    metadata = group_data.get("metadata", {})
+                    if isinstance(metadata, dict):
+                        tp_order_ids_list = metadata.get("tp_order_ids", [])
+                        if tp_order_ids_list:
+                            all_order_ids.extend(tp_order_ids_list)
+                    
+                    # Remove duplicates and the filled order itself
+                    orders_to_cancel = list(set(all_order_ids))
+                    orders_to_cancel = [oid for oid in orders_to_cancel if oid != filled_order_id]
+                    
+                    # Cancel all peer orders
+                    if orders_to_cancel:
+                        self.log.info(f"🔴 OCO: Cancelling {len(orders_to_cancel)} peer orders")
+                        for peer_order_id in orders_to_cancel:
+                            self._cancel_oco_peer_order(peer_order_id, group_id)
+                    
+                # Clean up OCO group
+                self.oco_manager.remove_group(group_id)
+    
+    def _cancel_oco_peer_order(self, peer_order_id: str, group_id: str):
+        """
+        Cancel the peer order in an OCO group.
+        
+        Parameters
+        ----------
+        peer_order_id : str
+            Order ID to cancel
+        group_id : str
+            OCO group ID for logging
+        """
+        try:
+            # Find the order in cache
+            from nautilus_trader.model.identifiers import ClientOrderId
+            order_id_obj = ClientOrderId(peer_order_id)
+            order = self.cache.order(order_id_obj)
+            
+            if order:
+                if order.is_open:
+                    # Order is open, cancel it
+                    self.cancel_order(order)
+                    self.log.info(
+                        f"🔴 OCO: Auto-cancelled peer order {peer_order_id[:8]}... "
+                        f"from group [{group_id}]"
+                    )
+                elif order.is_canceled:
+                    self.log.debug(f"ℹ️ Peer order already cancelled: {peer_order_id[:8]}...")
+                elif order.is_closed:
+                    self.log.warning(
+                        f"⚠️ Peer order already closed: {peer_order_id[:8]}... "
+                        f"(status: {order.status.name})"
+                    )
+                else:
+                    self.log.debug(f"ℹ️ Peer order status: {order.status.name}")
+            else:
+                self.log.warning(f"⚠️ Peer order not found in cache: {peer_order_id[:8]}...")
+                
+        except Exception as e:
+            self.log.error(
+                f"❌ Failed to cancel OCO peer order {peer_order_id[:8]}...: {e}"
+            )
 
     def on_order_rejected(self, event):
         """Handle order rejected events."""
@@ -641,11 +1028,300 @@ class DeepSeekAIStrategy(Strategy):
             f"🟢 Position opened: {event.side.name} "
             f"{event.quantity} @ {event.avg_px_open}"
         )
+        
+        # Submit Stop Loss and Take Profit orders
+        entry_side = OrderSide.BUY if event.side == PositionSide.LONG else OrderSide.SELL
+        self._submit_sl_tp_orders(
+            entry_side=entry_side,
+            entry_price=float(event.avg_px_open),
+            quantity=float(event.quantity),
+        )
+        
+        # Initialize trailing stop state if enabled
+        if self.enable_trailing_stop:
+            instrument_key = str(self.instrument_id)
+            entry_price = float(event.avg_px_open)
+            
+            self.trailing_stop_state[instrument_key] = {
+                "entry_price": entry_price,
+                "highest_price": entry_price if event.side == PositionSide.LONG else None,
+                "lowest_price": entry_price if event.side == PositionSide.SHORT else None,
+                "current_sl_price": None,  # Will be set after SL order is submitted
+                "sl_order_id": None,  # Will be set after SL order is submitted
+                "activated": False,
+                "side": event.side.name,
+                "quantity": float(event.quantity),
+            }
+            self.log.info(
+                f"📊 Trailing stop initialized for {event.side.name} position @ ${entry_price:,.2f}"
+            )
 
     def on_position_closed(self, event):
         """Handle position closed events."""
-        # PositionClosed event contains position data directly
+        # PositionOpened event contains position data directly
         self.log.info(
             f"🔴 Position closed: {event.side.name} "
             f"P&L: {event.realized_pnl:.2f} USDT"
         )
+        
+        # Clear trailing stop state
+        instrument_key = str(self.instrument_id)
+        if instrument_key in self.trailing_stop_state:
+            del self.trailing_stop_state[instrument_key]
+            self.log.debug(f"🗑️ Cleared trailing stop state for {instrument_key}")
+    
+    def _cleanup_oco_orphans(self):
+        """
+        Clean up orphan orders and expired OCO groups.
+        
+        This is a safety mechanism that runs periodically to:
+        1. Cancel orphan reduce-only orders when no position exists
+        2. Clean up expired OCO groups (older than TTL)
+        3. Log OCO statistics
+        """
+        try:
+            # Get current positions
+            positions = self.cache.positions_open(instrument_id=self.instrument_id)
+            has_position = len(positions) > 0
+            
+            if not has_position:
+                # No position but check for orphan orders
+                open_orders = self.cache.orders_open(instrument_id=self.instrument_id)
+                
+                if open_orders:
+                    orphan_count = 0
+                    for order in open_orders:
+                        if order.is_reduce_only:
+                            # This is a reduce-only order without a position - orphan!
+                            try:
+                                self.cancel_order(order)
+                                orphan_count += 1
+                                self.log.info(
+                                    f"🗑️ Cancelled orphan reduce-only order: "
+                                    f"{str(order.client_order_id)[:8]}..."
+                                )
+                            except Exception as e:
+                                self.log.error(
+                                    f"Failed to cancel orphan order: {e}"
+                                )
+                    
+                    if orphan_count > 0:
+                        self.log.warning(
+                            f"⚠️ Cleaned up {orphan_count} orphan orders"
+                        )
+            
+            # Clean up expired OCO groups
+            expired_count = self.oco_manager.cleanup_expired_groups()
+            
+            # Log OCO statistics periodically
+            stats = self.oco_manager.get_statistics()
+            if stats['total_groups'] > 0:
+                self.log.debug(
+                    f"📊 OCO Stats: Total={stats['total_groups']}, "
+                    f"Active={stats['active_groups']}, "
+                    f"Redis={'✅' if stats['redis_enabled'] else '❌'}"
+                )
+                
+        except Exception as e:
+            self.log.error(f"❌ OCO cleanup failed: {e}")
+    
+    def _update_trailing_stops(self, current_price: float):
+        """
+        Update trailing stop loss orders based on current price.
+        
+        Logic:
+        1. Check if position is profitable enough to activate trailing stop
+        2. Track highest price (LONG) or lowest price (SHORT)
+        3. Update stop loss when price moves favorably beyond threshold
+        4. Stop loss only moves in favorable direction, never backwards
+        
+        Parameters
+        ----------
+        current_price : float
+            Current market price
+        """
+        try:
+            instrument_key = str(self.instrument_id)
+            
+            # Check if we have trailing stop state for this instrument
+            if instrument_key not in self.trailing_stop_state:
+                return
+            
+            state = self.trailing_stop_state[instrument_key]
+            entry_price = state["entry_price"]
+            side = state["side"]
+            activated = state["activated"]
+            
+            # Calculate profit percentage
+            if side == "LONG":
+                profit_pct = (current_price - entry_price) / entry_price
+                
+                # Update highest price
+                if state["highest_price"] is None or current_price > state["highest_price"]:
+                    state["highest_price"] = current_price
+                
+                highest_price = state["highest_price"]
+                
+                # Check if we should activate trailing stop
+                if not activated and profit_pct >= self.trailing_activation_pct:
+                    state["activated"] = True
+                    self.log.info(
+                        f"🎯 Trailing stop ACTIVATED for LONG @ ${current_price:,.2f} "
+                        f"(Profit: {profit_pct*100:.2f}%)"
+                    )
+                    activated = True
+                
+                # If activated, check if we should update stop loss
+                if activated:
+                    # Calculate new stop loss based on highest price
+                    new_sl_price = highest_price * (1 - self.trailing_distance_pct)
+                    current_sl_price = state["current_sl_price"]
+                    
+                    # Only update if new SL is significantly higher than current
+                    if current_sl_price is None:
+                        should_update = True
+                    else:
+                        price_move_pct = (new_sl_price - current_sl_price) / current_sl_price
+                        should_update = price_move_pct >= self.trailing_update_threshold_pct
+                    
+                    if should_update and new_sl_price > current_sl_price:
+                        self._execute_trailing_stop_update(
+                            instrument_key=instrument_key,
+                            new_sl_price=new_sl_price,
+                            current_price=current_price,
+                            side="LONG"
+                        )
+            
+            elif side == "SHORT":
+                profit_pct = (entry_price - current_price) / entry_price
+                
+                # Update lowest price
+                if state["lowest_price"] is None or current_price < state["lowest_price"]:
+                    state["lowest_price"] = current_price
+                
+                lowest_price = state["lowest_price"]
+                
+                # Check if we should activate trailing stop
+                if not activated and profit_pct >= self.trailing_activation_pct:
+                    state["activated"] = True
+                    self.log.info(
+                        f"🎯 Trailing stop ACTIVATED for SHORT @ ${current_price:,.2f} "
+                        f"(Profit: {profit_pct*100:.2f}%)"
+                    )
+                    activated = True
+                
+                # If activated, check if we should update stop loss
+                if activated:
+                    # Calculate new stop loss based on lowest price
+                    new_sl_price = lowest_price * (1 + self.trailing_distance_pct)
+                    current_sl_price = state["current_sl_price"]
+                    
+                    # Only update if new SL is significantly lower than current
+                    if current_sl_price is None:
+                        should_update = True
+                    else:
+                        price_move_pct = (current_sl_price - new_sl_price) / current_sl_price
+                        should_update = price_move_pct >= self.trailing_update_threshold_pct
+                    
+                    if should_update and new_sl_price < current_sl_price:
+                        self._execute_trailing_stop_update(
+                            instrument_key=instrument_key,
+                            new_sl_price=new_sl_price,
+                            current_price=current_price,
+                            side="SHORT"
+                        )
+                        
+        except Exception as e:
+            self.log.error(f"❌ Trailing stop update failed: {e}")
+    
+    def _execute_trailing_stop_update(
+        self,
+        instrument_key: str,
+        new_sl_price: float,
+        current_price: float,
+        side: str
+    ):
+        """
+        Execute the actual update of trailing stop loss order.
+        
+        Parameters
+        ----------
+        instrument_key : str
+            Instrument identifier
+        new_sl_price : float
+            New stop loss price
+        current_price : float
+            Current market price
+        side : str
+            Position side (LONG/SHORT)
+        """
+        try:
+            state = self.trailing_stop_state[instrument_key]
+            old_sl_price = state["current_sl_price"]
+            old_sl_order_id = state["sl_order_id"]
+            quantity = state["quantity"]
+            
+            # Log the update
+            if old_sl_price:
+                move_pct = ((new_sl_price - old_sl_price) / old_sl_price) * 100
+                self.log.info(
+                    f"⬆️ Trailing Stop Update ({side}):\n"
+                    f"   Current Price: ${current_price:,.2f}\n"
+                    f"   Old SL: ${old_sl_price:,.2f}\n"
+                    f"   New SL: ${new_sl_price:,.2f} ({move_pct:+.2f}%)\n"
+                    f"   Distance: {abs((new_sl_price - current_price) / current_price * 100):.2f}%"
+                )
+            else:
+                self.log.info(
+                    f"📍 Initial Trailing Stop ({side}):\n"
+                    f"   Current Price: ${current_price:,.2f}\n"
+                    f"   SL Price: ${new_sl_price:,.2f}\n"
+                    f"   Distance: {abs((new_sl_price - current_price) / current_price * 100):.2f}%"
+                )
+            
+            # Cancel old stop loss order if it exists
+            if old_sl_order_id:
+                try:
+                    from nautilus_trader.model.identifiers import ClientOrderId
+                    old_order_id_obj = ClientOrderId(old_sl_order_id)
+                    old_order = self.cache.order(old_order_id_obj)
+                    
+                    if old_order and old_order.is_open:
+                        self.cancel_order(old_order)
+                        self.log.debug(f"🔴 Cancelled old SL order: {old_sl_order_id[:8]}...")
+                except Exception as e:
+                    self.log.warning(f"⚠️ Failed to cancel old SL order: {e}")
+            
+            # Submit new stop loss order
+            exit_side = OrderSide.SELL if side == "LONG" else OrderSide.BUY
+            
+            new_sl_order = self.order_factory.stop_market(
+                instrument_id=self.instrument_id,
+                order_side=exit_side,
+                quantity=self.instrument.make_qty(quantity),
+                trigger_price=self.instrument.make_price(new_sl_price),
+                trigger_type=TriggerType.LAST_TRADE,
+                reduce_only=True,
+            )
+            self.submit_order(new_sl_order)
+            
+            # Update state
+            state["current_sl_price"] = new_sl_price
+            state["sl_order_id"] = str(new_sl_order.client_order_id)
+            
+            self.log.info(f"✅ New trailing SL order submitted @ ${new_sl_price:,.2f}")
+            
+            # Update OCO group if enabled
+            if self.enable_oco and self.oco_manager and old_sl_order_id:
+                # Find and update OCO group
+                group_id = self.oco_manager.find_group_by_order(old_sl_order_id)
+                if group_id:
+                    group_data = self.oco_manager.get_group(group_id)
+                    if group_data:
+                        # Update SL order ID in OCO group
+                        self.oco_manager.oco_groups[group_id]["sl_order_id"] = str(new_sl_order.client_order_id)
+                        self.oco_manager.oco_groups[group_id]["sl_price"] = new_sl_price
+                        self.log.debug(f"🔄 Updated OCO group [{group_id}] with new SL order")
+                        
+        except Exception as e:
+            self.log.error(f"❌ Failed to execute trailing stop update: {e}")
