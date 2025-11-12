@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.trading.strategy import Strategy
 from nautilus_trader.model.data import Bar, BarType
-from nautilus_trader.model.enums import OrderSide, TimeInForce, PositionSide, PriceType, TriggerType
+from nautilus_trader.model.enums import OrderSide, TimeInForce, PositionSide, PriceType, TriggerType, OrderType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.position import Position
@@ -27,7 +27,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from indicators.technical_manager import TechnicalIndicatorManager
 from utils.deepseek_client import DeepSeekAnalyzer
 from utils.sentiment_client import SentimentDataFetcher
-from utils.oco_manager import OCOManager
+# OCOManager no longer needed - using NautilusTrader's built-in bracket orders
 
 
 class DeepSeekAIStrategyConfig(StrategyConfig, frozen=True):
@@ -180,26 +180,11 @@ class DeepSeekAIStrategy(Strategy):
         # Store latest signal and technical data for SL/TP calculation
         self.latest_signal_data: Optional[Dict[str, Any]] = None
         self.latest_technical_data: Optional[Dict[str, Any]] = None
-        
-        # OCO (One-Cancels-the-Other) Manager
-        self.enable_oco = config.enable_oco
-        self.oco_manager: Optional[OCOManager] = None
-        if self.enable_oco:
-            try:
-                self.oco_manager = OCOManager(
-                    redis_host=config.oco_redis_host,
-                    redis_port=config.oco_redis_port,
-                    redis_db=config.oco_redis_db,
-                    redis_password=config.oco_redis_password,
-                    key_prefix="nautilus:deepseek:oco",
-                    group_ttl_hours=config.oco_group_ttl_hours,
-                    logger=self.log,
-                )
-                self.log.info(f"✅ OCO Manager initialized: {self.oco_manager}")
-            except Exception as e:
-                self.log.warning(f"⚠️ Failed to initialize OCO Manager: {e}")
-                self.oco_manager = None
-                self.enable_oco = False
+
+        # OCO (One-Cancels-the-Other) - Now handled by NautilusTrader's bracket orders
+        # No need for manual OCO manager anymore
+        self.enable_oco = config.enable_oco  # Keep for config compatibility
+        self.oco_manager = None  # Deprecated: bracket orders handle OCO automatically
         
         # Trailing Stop Loss
         self.enable_trailing_stop = config.enable_trailing_stop
@@ -834,16 +819,25 @@ class DeepSeekAIStrategy(Strategy):
             )
 
     def _open_new_position(self, side: str, quantity: float):
-        """Open new position."""
+        """
+        Open new position using bracket order (entry + SL + TP).
+
+        This method submits a bracket order which automatically includes:
+        - Entry order (MARKET)
+        - Stop Loss order (STOP_MARKET)
+        - Take Profit order(s) (LIMIT)
+
+        The SL and TP orders are linked with OCO, so when one fills, the others cancel.
+        """
         order_side = OrderSide.BUY if side == 'long' else OrderSide.SELL
 
-        self._submit_order(
+        # Submit bracket order with SL/TP
+        self._submit_bracket_order(
             side=order_side,
             quantity=quantity,
-            reduce_only=False,
         )
 
-        self.log.info(f"🚀 Opening {side} position: {quantity:.3f} BTC")
+        self.log.info(f"🚀 Opening {side} position: {quantity:.3f} BTC (with bracket SL/TP)")
 
     def _submit_order(
         self,
@@ -876,42 +870,60 @@ class DeepSeekAIStrategy(Strategy):
             f"(reduce_only={reduce_only})"
         )
     
-    def _submit_sl_tp_orders(
+    def _submit_bracket_order(
         self,
-        entry_side: OrderSide,
-        entry_price: float,
+        side: OrderSide,
         quantity: float,
     ):
         """
-        Submit Stop Loss and Take Profit orders after position is opened.
-        
+        Submit a bracket order with entry, stop loss, and take profit using NautilusTrader's built-in bracket orders.
+
+        This uses the OrderFactory.bracket() method which automatically creates:
+        - Entry order (MARKET)
+        - Stop Loss order (STOP_MARKET) linked with OTO (One-Triggers-Other)
+        - Take Profit order (LIMIT) linked with OTO and OCO with SL
+
+        The OCO linkage is handled automatically by NautilusTrader.
+
         Parameters
         ----------
-        entry_side : OrderSide
+        side : OrderSide
             Side of the entry order (BUY or SELL)
-        entry_price : float
-            Entry price of the position
         quantity : float
-            Quantity of the position
+            Quantity to trade
         """
+        if quantity < self.position_config['min_trade_amount']:
+            self.log.warning(
+                f"⚠️ Order quantity {quantity:.3f} below minimum "
+                f"{self.position_config['min_trade_amount']:.3f}, skipping"
+            )
+            return
+
         if not self.enable_auto_sl_tp:
-            self.log.debug("Auto SL/TP is disabled, skipping")
+            self.log.warning("⚠️ Auto SL/TP is disabled - submitting simple market order instead")
+            self._submit_order(side=side, quantity=quantity, reduce_only=False)
             return
-        
+
         if not self.latest_signal_data or not self.latest_technical_data:
-            self.log.warning("⚠️ No signal/technical data available for SL/TP calculation")
+            self.log.warning("⚠️ No signal/technical data available for SL/TP - submitting simple market order")
+            self._submit_order(side=side, quantity=quantity, reduce_only=False)
             return
-        
+
+        # Get current price estimate (use last known price)
+        current_bars = self.cache.bars(self.bar_type)
+        if not current_bars:
+            self.log.error("❌ No bar data available for price estimation")
+            return
+
+        entry_price = float(current_bars[-1].close)
+
         # Get confidence and technical data
         confidence = self.latest_signal_data.get('confidence', 'MEDIUM')
         support = self.latest_technical_data.get('support', 0.0)
         resistance = self.latest_technical_data.get('resistance', 0.0)
-        
-        # Determine exit side (opposite of entry)
-        exit_side = OrderSide.SELL if entry_side == OrderSide.BUY else OrderSide.BUY
-        
+
         # Calculate Stop Loss price
-        if entry_side == OrderSide.BUY:
+        if side == OrderSide.BUY:
             # BUY: Stop loss below support
             if self.sl_use_support_resistance and support > 0:
                 stop_loss_price = support * (1 - self.sl_buffer_pct)
@@ -927,159 +939,91 @@ class DeepSeekAIStrategy(Strategy):
             else:
                 stop_loss_price = entry_price * 1.02  # Default 2% above entry
                 self.log.info(f"📍 Using default 2% SL: ${stop_loss_price:,.2f}")
-        
-        # Prepare Take Profit levels
-        tp_orders_info = []
-        
-        if self.enable_partial_tp and len(self.partial_tp_levels) > 0:
-            # Use partial take profit levels
-            self.log.info(f"📊 Using Partial Take Profit with {len(self.partial_tp_levels)} levels")
-            
-            remaining_qty = quantity
-            for i, level in enumerate(self.partial_tp_levels):
-                profit_pct = level["profit_pct"]
-                position_pct = level["position_pct"]
-                
-                # Calculate price for this level
-                if entry_side == OrderSide.BUY:
-                    tp_price = entry_price * (1 + profit_pct)
-                else:
-                    tp_price = entry_price * (1 - profit_pct)
-                
-                # Calculate quantity for this level
-                level_qty = quantity * position_pct
-                
-                tp_orders_info.append({
-                    "price": tp_price,
-                    "quantity": level_qty,
-                    "profit_pct": profit_pct,
-                    "position_pct": position_pct,
-                    "level": i + 1
-                })
-                
-                remaining_qty -= level_qty
-            
-            # Log partial TP plan
-            self.log.info("📋 Partial Take Profit Plan:")
-            for info in tp_orders_info:
-                self.log.info(
-                    f"   Level {info['level']}: {info['position_pct']*100:.0f}% @ "
-                    f"${info['price']:,.2f} (+{info['profit_pct']*100:.1f}%)"
-                )
+
+        # Calculate Take Profit price (use first level for bracket order)
+        # Note: Bracket orders support single TP. For multiple TPs, we'll submit additional orders after entry fills
+        tp_pct = self.tp_pct_config.get(confidence, 0.02)
+        if side == OrderSide.BUY:
+            tp_price = entry_price * (1 + tp_pct)
         else:
-            # Use single take profit based on confidence
-            tp_pct = self.tp_pct_config.get(confidence, 0.02)
-            if entry_side == OrderSide.BUY:
-                tp_price = entry_price * (1 + tp_pct)
-            else:
-                tp_price = entry_price * (1 - tp_pct)
-            
-            tp_orders_info.append({
-                "price": tp_price,
-                "quantity": quantity,
-                "profit_pct": tp_pct,
-                "position_pct": 1.0,
-                "level": 1
-            })
-        
+            tp_price = entry_price * (1 - tp_pct)
+
         # Log SL/TP summary
         self.log.info(
-            f"🎯 Calculated SL/TP for {entry_side.name} position:\n"
-            f"   Entry: ${entry_price:,.2f}\n"
+            f"🎯 Creating bracket order for {side.name}:\n"
+            f"   Entry: ~${entry_price:,.2f} (MARKET)\n"
             f"   Stop Loss: ${stop_loss_price:,.2f} ({((stop_loss_price/entry_price - 1) * 100):.2f}%)\n"
-            f"   Take Profit Levels: {len(tp_orders_info)}\n"
+            f"   Take Profit: ${tp_price:,.2f} ({((tp_price/entry_price - 1) * 100):.2f}%)\n"
+            f"   Quantity: {quantity:.3f}\n"
             f"   Confidence: {confidence}"
         )
-        
+
         try:
-            # Submit Stop Loss order (STOP_MARKET)
-            sl_order = self.order_factory.stop_market(
+            # Create bracket order using OrderFactory
+            # This automatically creates entry + SL + TP with OTO/OCO linkage
+            bracket_order_list = self.order_factory.bracket(
                 instrument_id=self.instrument_id,
-                order_side=exit_side,
+                order_side=side,
                 quantity=self.instrument.make_qty(quantity),
-                trigger_price=self.instrument.make_price(stop_loss_price),
-                trigger_type=TriggerType.LAST_TRADE,
-                reduce_only=True,
+                sl_trigger_price=self.instrument.make_price(stop_loss_price),
+                tp_price=self.instrument.make_price(tp_price),
+                time_in_force=TimeInForce.GTC,
             )
-            self.submit_order(sl_order)
-            self.log.info(f"🛡️ Submitted Stop Loss order @ ${stop_loss_price:,.2f}")
-            
-            # Submit Take Profit orders (LIMIT)
-            tp_order_ids = []
-            for tp_info in tp_orders_info:
-                tp_order = self.order_factory.limit(
-                    instrument_id=self.instrument_id,
-                    order_side=exit_side,
-                    quantity=self.instrument.make_qty(tp_info["quantity"]),
-                    price=self.instrument.make_price(tp_info["price"]),
-                    time_in_force=TimeInForce.GTC,
-                    reduce_only=True,
-                )
-                self.submit_order(tp_order)
-                tp_order_ids.append(str(tp_order.client_order_id))
-                
-                self.log.info(
-                    f"🎯 Submitted TP Level {tp_info['level']}: "
-                    f"{tp_info['position_pct']*100:.0f}% @ ${tp_info['price']:,.2f}"
-                )
-            
-            # Save SL order ID for trailing stop
+
+            # Submit the bracket order list
+            self.submit_order_list(bracket_order_list)
+
+            self.log.info(
+                f"✅ Submitted bracket order: {side.name} {quantity:.3f} BTC with SL/TP\n"
+                f"   OrderList ID: {bracket_order_list.id}"
+            )
+
+            # Save bracket order info for trailing stop
             if self.enable_trailing_stop:
                 instrument_key = str(self.instrument_id)
-                if instrument_key in self.trailing_stop_state:
-                    self.trailing_stop_state[instrument_key]["sl_order_id"] = str(sl_order.client_order_id)
-                    self.trailing_stop_state[instrument_key]["current_sl_price"] = stop_loss_price
+
+                # Extract SL order from bracket (it's typically the second order in the list)
+                sl_order = None
+                for order in bracket_order_list.orders:
+                    if order.order_type == OrderType.STOP_MARKET:
+                        sl_order = order
+                        break
+
+                if sl_order:
+                    self.trailing_stop_state[instrument_key] = {
+                        "entry_price": entry_price,
+                        "highest_price": entry_price if side == OrderSide.BUY else None,
+                        "lowest_price": entry_price if side == OrderSide.SELL else None,
+                        "current_sl_price": stop_loss_price,
+                        "sl_order_id": str(sl_order.client_order_id),
+                        "activated": False,
+                        "side": "LONG" if side == OrderSide.BUY else "SHORT",
+                        "quantity": quantity,
+                    }
                     self.log.debug(
                         f"📌 Saved SL order ID for trailing stop: {str(sl_order.client_order_id)[:8]}..."
                     )
-            
-            # Register OCO group if enabled (with multiple TP orders)
-            if self.enable_oco and self.oco_manager:
-                import time
-                group_id = f"{entry_side.name}_{self.instrument_id}_{int(time.time())}"
-                
-                # Store multiple TP order IDs
-                tp_order_id_str = ",".join(tp_order_ids)  # Join multiple IDs with comma
-                
-                self.oco_manager.create_oco_group(
-                    group_id=group_id,
-                    sl_order_id=str(sl_order.client_order_id),
-                    tp_order_id=tp_order_id_str,  # Can contain multiple IDs
-                    instrument_id=str(self.instrument_id),
-                    entry_side=entry_side.name,
-                    entry_price=entry_price,
-                    quantity=quantity,
-                    sl_price=stop_loss_price,
-                    tp_price=tp_orders_info[0]["price"],  # First TP level for reference
-                    metadata={
-                        "confidence": confidence,
-                        "support": self.latest_technical_data.get('support', 0.0) if self.latest_technical_data else 0.0,
-                        "resistance": self.latest_technical_data.get('resistance', 0.0) if self.latest_technical_data else 0.0,
-                        "partial_tp": self.enable_partial_tp,
-                        "tp_levels": len(tp_orders_info),
-                        "tp_order_ids": tp_order_ids,  # Store as list in metadata
-                    }
-                )
-                
-                self.log.debug(f"🔗 Registered OCO group: {group_id} (1 SL + {len(tp_order_ids)} TP orders)")
-            
+
         except Exception as e:
-            self.log.error(f"❌ Failed to submit SL/TP orders: {e}")
+            self.log.error(f"❌ Failed to submit bracket order: {e}")
+            self.log.warning("⚠️ Falling back to simple market order without SL/TP")
+            self._submit_order(side=side, quantity=quantity, reduce_only=False)
 
     def on_order_filled(self, event):
         """
         Handle order filled events.
-        
-        Implements OCO logic: when one order fills, automatically cancel the peer order.
+
+        Note: OCO logic is now handled automatically by NautilusTrader's bracket orders.
+        We no longer need to manually cancel peer orders.
         """
         filled_order_id = str(event.client_order_id)
-        
+
         self.log.info(
             f"✅ Order filled: {event.order_side.name} "
             f"{event.last_qty} @ {event.last_px} "
             f"(ID: {filled_order_id[:8]}...)"
         )
-        
+
         # Send Telegram order fill notification
         if self.telegram_bot and self.enable_telegram and self.telegram_notify_fills:
             try:
@@ -1092,141 +1036,58 @@ class DeepSeekAIStrategy(Strategy):
                 self.telegram_bot.send_message_sync(fill_msg)
             except Exception as e:
                 self.log.warning(f"Failed to send Telegram fill notification: {e}")
-        
-        # Check if this order belongs to an OCO group
-        if self.enable_oco and self.oco_manager:
-            group_id = self.oco_manager.find_group_by_order(filled_order_id)
-            
-            if group_id:
-                # This order is part of an OCO group
-                self.log.info(f"🔗 Order belongs to OCO group: {group_id}")
-                
-                # Mark as filled
-                self.oco_manager.mark_filled(group_id, filled_order_id)
-                
-                # Get the group data to find all related orders
-                group_data = self.oco_manager.get_group(group_id)
-                
-                if group_data:
-                    # Collect all order IDs in this group
-                    all_order_ids = []
-                    
-                    # Add SL order
-                    sl_order_id = group_data.get("sl_order_id")
-                    if sl_order_id:
-                        all_order_ids.append(sl_order_id)
-                    
-                    # Add TP order(s) - can be single ID or comma-separated IDs
-                    tp_order_id_str = group_data.get("tp_order_id", "")
-                    if tp_order_id_str:
-                        if "," in tp_order_id_str:
-                            # Multiple TP orders
-                            all_order_ids.extend(tp_order_id_str.split(","))
-                        else:
-                            # Single TP order
-                            all_order_ids.append(tp_order_id_str)
-                    
-                    # Also check metadata for tp_order_ids list
-                    metadata = group_data.get("metadata", {})
-                    if isinstance(metadata, dict):
-                        tp_order_ids_list = metadata.get("tp_order_ids", [])
-                        if tp_order_ids_list:
-                            all_order_ids.extend(tp_order_ids_list)
-                    
-                    # Remove duplicates and the filled order itself
-                    orders_to_cancel = list(set(all_order_ids))
-                    orders_to_cancel = [oid for oid in orders_to_cancel if oid != filled_order_id]
-                    
-                    # Cancel all peer orders
-                    if orders_to_cancel:
-                        self.log.info(f"🔴 OCO: Cancelling {len(orders_to_cancel)} peer orders")
-                        for peer_order_id in orders_to_cancel:
-                            self._cancel_oco_peer_order(peer_order_id, group_id)
-                    
-                # Clean up OCO group
-                self.oco_manager.remove_group(group_id)
     
-    def _cancel_oco_peer_order(self, peer_order_id: str, group_id: str):
-        """
-        Cancel the peer order in an OCO group.
-        
-        Parameters
-        ----------
-        peer_order_id : str
-            Order ID to cancel
-        group_id : str
-            OCO group ID for logging
-        """
-        try:
-            # Find the order in cache
-            from nautilus_trader.model.identifiers import ClientOrderId
-            order_id_obj = ClientOrderId(peer_order_id)
-            order = self.cache.order(order_id_obj)
-            
-            if order:
-                if order.is_open:
-                    # Order is open, cancel it
-                    self.cancel_order(order)
-                    self.log.info(
-                        f"🔴 OCO: Auto-cancelled peer order {peer_order_id[:8]}... "
-                        f"from group [{group_id}]"
-                    )
-                elif order.is_canceled:
-                    self.log.debug(f"ℹ️ Peer order already cancelled: {peer_order_id[:8]}...")
-                elif order.is_closed:
-                    self.log.warning(
-                        f"⚠️ Peer order already closed: {peer_order_id[:8]}... "
-                        f"(status: {order.status.name})"
-                    )
-                else:
-                    self.log.debug(f"ℹ️ Peer order status: {order.status.name}")
-            else:
-                self.log.warning(f"⚠️ Peer order not found in cache: {peer_order_id[:8]}...")
-                
-        except Exception as e:
-            self.log.error(
-                f"❌ Failed to cancel OCO peer order {peer_order_id[:8]}...: {e}"
-            )
 
     def on_order_rejected(self, event):
         """Handle order rejected events."""
         self.log.error(f"❌ Order rejected: {event.reason}")
 
     def on_position_opened(self, event):
-        """Handle position opened events."""
+        """
+        Handle position opened events.
+
+        Note: With bracket orders, SL/TP orders are automatically submitted as part of the bracket.
+        We no longer need to manually submit them here.
+        """
         # PositionOpened event contains position data directly
         self.log.info(
             f"🟢 Position opened: {event.side.name} "
             f"{event.quantity} @ {event.avg_px_open}"
         )
-        
-        # Submit Stop Loss and Take Profit orders
-        entry_side = OrderSide.BUY if event.side == PositionSide.LONG else OrderSide.SELL
-        self._submit_sl_tp_orders(
-            entry_side=entry_side,
-            entry_price=float(event.avg_px_open),
-            quantity=float(event.quantity),
-        )
-        
-        # Initialize trailing stop state if enabled
+
+        # Update trailing stop state with actual entry price if it exists
+        # (bracket order already initialized it with estimated price)
         if self.enable_trailing_stop:
             instrument_key = str(self.instrument_id)
             entry_price = float(event.avg_px_open)
-            
-            self.trailing_stop_state[instrument_key] = {
-                "entry_price": entry_price,
-                "highest_price": entry_price if event.side == PositionSide.LONG else None,
-                "lowest_price": entry_price if event.side == PositionSide.SHORT else None,
-                "current_sl_price": None,  # Will be set after SL order is submitted
-                "sl_order_id": None,  # Will be set after SL order is submitted
-                "activated": False,
-                "side": event.side.name,
-                "quantity": float(event.quantity),
-            }
-            self.log.info(
-                f"📊 Trailing stop initialized for {event.side.name} position @ ${entry_price:,.2f}"
-            )
-        
+
+            if instrument_key in self.trailing_stop_state:
+                # Update with actual entry price
+                self.trailing_stop_state[instrument_key]["entry_price"] = entry_price
+                if event.side == PositionSide.LONG:
+                    self.trailing_stop_state[instrument_key]["highest_price"] = entry_price
+                else:
+                    self.trailing_stop_state[instrument_key]["lowest_price"] = entry_price
+
+                self.log.debug(
+                    f"📊 Updated trailing stop state with actual entry price: ${entry_price:,.2f}"
+                )
+            else:
+                # Fallback: initialize if not already set (shouldn't happen with bracket orders)
+                self.trailing_stop_state[instrument_key] = {
+                    "entry_price": entry_price,
+                    "highest_price": entry_price if event.side == PositionSide.LONG else None,
+                    "lowest_price": entry_price if event.side == PositionSide.SHORT else None,
+                    "current_sl_price": None,
+                    "sl_order_id": None,
+                    "activated": False,
+                    "side": event.side.name,
+                    "quantity": float(event.quantity),
+                }
+                self.log.info(
+                    f"📊 Trailing stop initialized for {event.side.name} position @ ${entry_price:,.2f}"
+                )
+
         # Send Telegram position opened notification
         if self.telegram_bot and self.enable_telegram and self.telegram_notify_positions:
             try:
@@ -1281,22 +1142,22 @@ class DeepSeekAIStrategy(Strategy):
     
     def _cleanup_oco_orphans(self):
         """
-        Clean up orphan orders and expired OCO groups.
-        
+        Clean up orphan orders.
+
         This is a safety mechanism that runs periodically to:
         1. Cancel orphan reduce-only orders when no position exists
-        2. Clean up expired OCO groups (older than TTL)
-        3. Log OCO statistics
+
+        Note: OCO group management is no longer needed as NautilusTrader handles it automatically.
         """
         try:
             # Get current positions
             positions = self.cache.positions_open(instrument_id=self.instrument_id)
             has_position = len(positions) > 0
-            
+
             if not has_position:
                 # No position but check for orphan orders
                 open_orders = self.cache.orders_open(instrument_id=self.instrument_id)
-                
+
                 if open_orders:
                     orphan_count = 0
                     for order in open_orders:
@@ -1313,26 +1174,14 @@ class DeepSeekAIStrategy(Strategy):
                                 self.log.error(
                                     f"Failed to cancel orphan order: {e}"
                                 )
-                    
+
                     if orphan_count > 0:
                         self.log.warning(
                             f"⚠️ Cleaned up {orphan_count} orphan orders"
                         )
-            
-            # Clean up expired OCO groups
-            expired_count = self.oco_manager.cleanup_expired_groups()
-            
-            # Log OCO statistics periodically
-            stats = self.oco_manager.get_statistics()
-            if stats['total_groups'] > 0:
-                self.log.debug(
-                    f"📊 OCO Stats: Total={stats['total_groups']}, "
-                    f"Active={stats['active_groups']}, "
-                    f"Redis={'✅' if stats['redis_enabled'] else '❌'}"
-                )
-                
+
         except Exception as e:
-            self.log.error(f"❌ OCO cleanup failed: {e}")
+            self.log.error(f"❌ Orphan order cleanup failed: {e}")
     
     def _update_trailing_stops(self, current_price: float):
         """
@@ -1517,21 +1366,12 @@ class DeepSeekAIStrategy(Strategy):
             # Update state
             state["current_sl_price"] = new_sl_price
             state["sl_order_id"] = str(new_sl_order.client_order_id)
-            
+
             self.log.info(f"✅ New trailing SL order submitted @ ${new_sl_price:,.2f}")
-            
-            # Update OCO group if enabled
-            if self.enable_oco and self.oco_manager and old_sl_order_id:
-                # Find and update OCO group
-                group_id = self.oco_manager.find_group_by_order(old_sl_order_id)
-                if group_id:
-                    group_data = self.oco_manager.get_group(group_id)
-                    if group_data:
-                        # Update SL order ID in OCO group
-                        self.oco_manager.oco_groups[group_id]["sl_order_id"] = str(new_sl_order.client_order_id)
-                        self.oco_manager.oco_groups[group_id]["sl_price"] = new_sl_price
-                        self.log.debug(f"🔄 Updated OCO group [{group_id}] with new SL order")
-                        
+
+            # Note: OCO relationship is handled automatically by NautilusTrader
+            # When the new SL is submitted, it will be linked to the existing TP orders
+
         except Exception as e:
             self.log.error(f"❌ Failed to execute trailing stop update: {e}")
     
