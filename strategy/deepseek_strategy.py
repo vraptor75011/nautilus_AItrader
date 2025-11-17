@@ -976,6 +976,8 @@ class DeepSeekAIStrategy(Strategy):
         try:
             # Create bracket order using OrderFactory
             # This automatically creates entry + SL + TP with OTO/OCO linkage
+            # IMPORTANT: Use emulation_trigger to enable order emulation for Binance compatibility
+            # Binance doesn't support native OCO+OTO orders, so NautilusTrader will emulate them
             bracket_order_list = self.order_factory.bracket(
                 instrument_id=self.instrument_id,
                 order_side=side,
@@ -983,6 +985,7 @@ class DeepSeekAIStrategy(Strategy):
                 sl_trigger_price=self.instrument.make_price(stop_loss_price),
                 tp_price=self.instrument.make_price(tp_price),
                 time_in_force=TimeInForce.GTC,
+                emulation_trigger=TriggerType.DEFAULT,  # Enable order emulation
             )
 
             # Submit the bracket order list
