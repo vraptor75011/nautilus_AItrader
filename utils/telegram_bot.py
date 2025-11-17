@@ -82,7 +82,7 @@ class TelegramBot:
     ) -> bool:
         """
         Send a text message to Telegram.
-        
+
         Parameters
         ----------
         message : str
@@ -91,7 +91,7 @@ class TelegramBot:
             Parse mode for formatting (Markdown, HTML, or None)
         disable_notification : bool
             Send silently without notification
-        
+
         Returns
         -------
         bool
@@ -100,7 +100,7 @@ class TelegramBot:
         if not self.enabled:
             self.logger.debug("Telegram bot is disabled, skipping message")
             return False
-        
+
         try:
             await self.bot.send_message(
                 chat_id=self.chat_id,
@@ -110,10 +110,26 @@ class TelegramBot:
             )
             self.logger.info(f"📱 Telegram message sent: {message[:50]}...")
             return True
-            
+
         except TelegramError as e:
-            self.logger.error(f"❌ Telegram error: {e}")
-            return False
+            # If parse error, retry without formatting
+            if "can't parse" in str(e).lower() or "parse entities" in str(e).lower():
+                self.logger.warning(f"⚠️ Markdown parse error, retrying without formatting: {e}")
+                try:
+                    await self.bot.send_message(
+                        chat_id=self.chat_id,
+                        text=message,
+                        parse_mode=None,  # Send as plain text
+                        disable_notification=disable_notification
+                    )
+                    self.logger.info(f"📱 Telegram message sent (plain text): {message[:50]}...")
+                    return True
+                except Exception as retry_e:
+                    self.logger.error(f"❌ Failed to send even without formatting: {retry_e}")
+                    return False
+            else:
+                self.logger.error(f"❌ Telegram error: {e}")
+                return False
         except Exception as e:
             self.logger.error(f"❌ Failed to send Telegram message: {e}")
             return False
@@ -126,25 +142,36 @@ class TelegramBot:
         Useful for calling from non-async contexts.
         """
         try:
-            # Try to get the running loop first
+            # Always create a new event loop for thread safety
+            # This avoids "no event loop in thread" errors
+            import threading
+            current_thread = threading.current_thread()
+
+            # Check if we're in the main thread with a running loop
             try:
                 loop = asyncio.get_running_loop()
-                # If we're already in an async context, schedule the task
-                asyncio.create_task(self.send_message(message, **kwargs))
-                return True
+                # We're in an async context, but send_message_sync should still work
+                # We need to run in a new thread to avoid blocking
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(self._run_sync_in_new_loop, message, kwargs)
+                    return future.result(timeout=10)
             except RuntimeError:
-                # No running loop, we need to create one
-                # This is safe to do from a thread
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    return loop.run_until_complete(self.send_message(message, **kwargs))
-                finally:
-                    loop.close()
-                    asyncio.set_event_loop(None)
+                # No running loop - create a new one
+                return self._run_sync_in_new_loop(message, kwargs)
         except Exception as e:
             self.logger.error(f"❌ Error in send_message_sync: {e}")
             return False
+
+    def _run_sync_in_new_loop(self, message: str, kwargs: dict) -> bool:
+        """Helper to run async code in a new event loop."""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(self.send_message(message, **kwargs))
+        finally:
+            loop.close()
+            # Don't set event loop to None - it might interfere with other threads
     
     # Message Formatters
     

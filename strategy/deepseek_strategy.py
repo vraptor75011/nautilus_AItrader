@@ -1376,7 +1376,7 @@ class DeepSeekAIStrategy(Strategy):
                 order_side=exit_side,
                 quantity=self.instrument.make_qty(quantity),
                 trigger_price=self.instrument.make_price(new_sl_price),
-                trigger_type=TriggerType.LAST_TRADE,
+                trigger_type=TriggerType.LAST_PRICE,
                 reduce_only=True,
             )
             self.submit_order(new_sl_order)
