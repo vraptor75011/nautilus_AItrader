@@ -177,9 +177,10 @@ class DeepSeekAIStrategy(Strategy):
             'LOW': config.tp_low_confidence_pct,
         }
         
-        # Store latest signal and technical data for SL/TP calculation
+        # Store latest signal, technical, and price data for SL/TP calculation
         self.latest_signal_data: Optional[Dict[str, Any]] = None
         self.latest_technical_data: Optional[Dict[str, Any]] = None
+        self.latest_price_data: Optional[Dict[str, Any]] = None
 
         # OCO (One-Cancels-the-Other) - Now handled by NautilusTrader's bracket orders
         # No need for manual OCO manager anymore
@@ -638,6 +639,7 @@ class DeepSeekAIStrategy(Strategy):
         # Store signal and technical data for SL/TP calculation
         self.latest_signal_data = signal_data
         self.latest_technical_data = technical_data
+        self.latest_price_data = price_data
         
         signal = signal_data['signal']
         confidence = signal_data['confidence']
@@ -909,13 +911,26 @@ class DeepSeekAIStrategy(Strategy):
             self._submit_order(side=side, quantity=quantity, reduce_only=False)
             return
 
-        # Get current price estimate (use last known price)
-        current_bars = self.cache.bars(self.bar_type)
-        if not current_bars:
-            self.log.error("❌ No bar data available for price estimation")
-            return
+        # Determine latest price for entry estimation
+        entry_price: Optional[float] = None
 
-        entry_price = float(current_bars[-1].close)
+        if self.latest_price_data and self.latest_price_data.get('price'):
+            entry_price = float(self.latest_price_data['price'])
+
+        if entry_price is None and hasattr(self.indicator_manager, "recent_bars"):
+            recent_bars = self.indicator_manager.recent_bars
+            if recent_bars:
+                entry_price = float(recent_bars[-1].close)
+
+        if entry_price is None:
+            cache_bars = self.cache.bars(self.bar_type)
+            if cache_bars:
+                entry_price = float(cache_bars[-1].close)
+
+        if entry_price is None or entry_price <= 0:
+            self.log.error("❌ Unable to determine entry price for bracket order, submitting market order instead")
+            self._submit_order(side=side, quantity=quantity, reduce_only=False)
+            return
 
         # Get confidence and technical data
         confidence = self.latest_signal_data.get('confidence', 'MEDIUM')
