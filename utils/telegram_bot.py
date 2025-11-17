@@ -121,19 +121,27 @@ class TelegramBot:
     def send_message_sync(self, message: str, **kwargs) -> bool:
         """
         Synchronous wrapper for send_message.
-        
+
         Creates an event loop if needed and sends the message.
         Useful for calling from non-async contexts.
         """
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If loop is already running, create a task
+            # Try to get the running loop first
+            try:
+                loop = asyncio.get_running_loop()
+                # If we're already in an async context, schedule the task
                 asyncio.create_task(self.send_message(message, **kwargs))
                 return True
-            else:
-                # If no loop running, run the coroutine
-                return loop.run_until_complete(self.send_message(message, **kwargs))
+            except RuntimeError:
+                # No running loop, we need to create one
+                # This is safe to do from a thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    return loop.run_until_complete(self.send_message(message, **kwargs))
+                finally:
+                    loop.close()
+                    asyncio.set_event_loop(None)
         except Exception as e:
             self.logger.error(f"❌ Error in send_message_sync: {e}")
             return False
