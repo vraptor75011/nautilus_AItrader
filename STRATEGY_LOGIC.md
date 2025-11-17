@@ -234,16 +234,21 @@ _submit_bracket_order(side, quantity) {
          * MEDIUM: +2% profit
          * LOW: +1% profit
 
-    // Step 3: Create Bracket Order
+    // Step 3: Create Bracket Order (with Emulation)
     7. Call OrderFactory.bracket():
        bracket_order_list = order_factory.bracket(
            instrument_id=instrument_id,
-           order_side=side,              // BUY or SELL
-           quantity=quantity,             // Position size
-           sl_trigger_price=sl_price,     // Stop loss trigger
-           tp_price=tp_price,             // Take profit price
-           time_in_force=GTC              // Good Till Cancel
+           order_side=side,                    // BUY or SELL
+           quantity=quantity,                  // Position size
+           sl_trigger_price=sl_price,          // Stop loss trigger
+           tp_price=tp_price,                  // Take profit price
+           time_in_force=GTC,                  // Good Till Cancel
+           emulation_trigger=TriggerType.DEFAULT // Enable emulation (Binance compatibility)
        )
+
+       IMPORTANT: Binance does NOT support native OCO+OTO orders.
+       Using emulation_trigger makes NautilusTrader emulate the OCO/OTO logic
+       locally instead of relying on exchange support.
 
     // Step 4: Submit Order List
     8. submit_order_list(bracket_order_list)
@@ -271,25 +276,38 @@ _submit_bracket_order(side, quantity) {
 }
 ```
 
-#### Order Lifecycle
+#### Order Lifecycle (Emulated Mode)
 
 ```
-1. ENTRY FILLS
-   └─> NautilusTrader triggers child orders (OTO)
-       ├─> SL order becomes ACTIVE
-       └─> TP order becomes ACTIVE
-            │
-            └─> Both are linked with OCO
+1. ENTRY ORDER SUBMITTED
+   └─> Sent to Binance as normal MARKET order
+       └─> SL and TP orders held in OrderEmulator (not sent to exchange yet)
 
-2. If TP FILLS
-   └─> NautilusTrader automatically CANCELS SL order (OCO)
+2. ENTRY FILLS
+   └─> OrderEmulator detects fill
+       └─> Emulator ACTIVATES child orders (OTO logic)
+           ├─> SL order submitted to Binance as STOP_MARKET
+           └─> TP order submitted to Binance as LIMIT
 
-3. If SL FILLS
-   └─> NautilusTrader automatically CANCELS TP order (OCO)
+3. If TP FILLS
+   └─> OrderEmulator detects fill
+       └─> Emulator automatically CANCELS SL order (OCO logic)
+           └─> Cancel request sent to Binance
 
-4. Strategy receives fill events
+4. If SL FILLS
+   └─> OrderEmulator detects fill
+       └─> Emulator automatically CANCELS TP order (OCO logic)
+           └─> Cancel request sent to Binance
+
+5. Strategy receives fill events
    └─> Updates Telegram notifications
    └─> Logs order status
+
+Why Emulation is Needed:
+- Binance does NOT support native OCO contingency with conditional orders
+- OrderEmulator handles OTO+OCO logic client-side
+- Provides same functionality without exchange support
+- More reliable than manual management
 ```
 
 ### Event Handlers
