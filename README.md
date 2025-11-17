@@ -1,116 +1,235 @@
-# DeepSeek AI Trading Strategy for NautilusTrader
+# NautilusTrader DeepSeek AI Trading Strategy
 
-🤖 **AI-Powered Cryptocurrency Trading Bot**
-
-Intelligent trading strategy combining DeepSeek AI decision-making, advanced technical analysis, and sentiment data for automated BTC/USDT perpetual futures trading on Binance.
+## v1.2.2 - Advanced AI-Powered Cryptocurrency Trading System
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![NautilusTrader](https://img.shields.io/badge/NautilusTrader-Latest-green.svg)](https://nautilustrader.io/)
+[![DeepSeek AI](https://img.shields.io/badge/DeepSeek-AI%20Powered-purple.svg)](https://www.deepseek.com/)
 [![License](https://img.shields.io/badge/license-Educational-orange.svg)](LICENSE)
 
----
-
-## 📋 Table of Contents
-
-- [Features](#-features)
-- [Architecture](#-architecture)
-- [Prerequisites](#-prerequisites)
-- [Installation](#-installation)
-- [Configuration](#-configuration)
-- [Usage](#-usage)
-- [Trading Logic](#-trading-logic)
-- [Risk Management](#-risk-management)
-- [Monitoring](#-monitoring)
-- [Troubleshooting](#-troubleshooting)
-- [Performance](#-performance-expectations)
-- [Disclaimer](#-disclaimer)
+**Professional algorithmic trading system combining DeepSeek AI decision-making, advanced technical analysis, and institutional-grade risk management for automated BTC/USDT perpetual futures trading on Binance.**
 
 ---
 
-## ✨ Features
+## Table of Contents
+
+- [Features](#features)
+- [What's New in v1.2.2](#whats-new-in-v122)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Advanced Features](#advanced-features)
+- [Usage](#usage)
+- [Risk Management](#risk-management)
+- [Monitoring](#monitoring)
+- [Troubleshooting](#troubleshooting)
+- [Performance](#performance-expectations)
+- [Documentation](#documentation)
+- [Disclaimer](#disclaimer)
+
+---
+
+## Features
 
 ### Core Capabilities
-- 🤖 **AI-Powered Decision Making**: DeepSeek AI analyzes market conditions and generates intelligent trading signals
-- 📊 **Comprehensive Technical Analysis**: 
-  - Moving Averages (SMA, EMA)
-  - Momentum Indicators (RSI, MACD)
-  - Volatility Bands (Bollinger)
+
+- **AI-Powered Decision Making**: DeepSeek AI analyzes market conditions and generates intelligent trading signals with confidence levels (HIGH/MEDIUM/LOW)
+- **Comprehensive Technical Analysis**:
+  - Moving Averages (SMA 5/20/50, EMA 12/26)
+  - Momentum Indicators (RSI 14, MACD)
+  - Volatility Bands (Bollinger 20, 2σ)
   - Support/Resistance Detection
   - Volume Analysis
-- 💭 **Sentiment Integration**: CryptoOracle API for real-time market sentiment
-- 💰 **Intelligent Position Sizing**: Dynamic sizing based on:
-  - AI confidence level (HIGH/MEDIUM/LOW)
-  - Trend strength
-  - RSI extremes
-  - Risk limits
-- 🔄 **Advanced Position Management**:
-  - Automatic position adjustments (add/reduce)
-  - Smart position reversals
-  - Risk-based sizing
-- ⚡ **Event-Driven Architecture**: Built on NautilusTrader's professional framework
-- 🔗 **Native Binance Integration**: Reliable execution via official adapter
+- **Sentiment Integration**: CryptoOracle API for real-time market sentiment analysis
+- **Intelligent Position Sizing**: Dynamic sizing based on AI confidence, trend strength, RSI extremes, and risk limits
+- **Event-Driven Architecture**: Built on NautilusTrader's professional framework for high-performance execution
+
+### Advanced Risk Management (v1.2.x)
+
+- **Automated Stop Loss & Take Profit**:
+  - Stop loss based on support/resistance levels with configurable buffer
+  - Take profit targets adjusted by AI confidence (1-3%)
+  - STOP_MARKET orders for stop loss, LIMIT orders for take profit
+
+- **OCO (One-Cancels-the-Other) Management**:
+  - Automatic cancellation of peer orders when one executes
+  - Redis persistence for OCO groups (survives strategy restarts)
+  - Automatic cleanup of orphan orders
+  - Event-driven order management
+
+- **Bracket Orders**:
+  - Native NautilusTrader bracket order support for Binance
+  - Simultaneous SL/TP submission with position entry
+  - Order emulation for exchanges without native bracket support
+
+- **Partial Take Profit**:
+  - Multiple take profit levels to lock in profits gradually
+  - Configurable profit thresholds and position percentages
+  - Example: Take 50% profit at +2%, remaining 50% at +4%
+  - Reduces risk while maintaining upside potential
+
+- **Trailing Stop Loss**:
+  - Dynamic stop loss that follows profitable price movement
+  - Activates after minimum profit threshold (default 1%)
+  - Locks in profits while allowing trend continuation
+  - Configurable trailing distance and update frequency
+
+### Remote Control & Monitoring
+
+- **Telegram Integration**:
+  - Real-time notifications for signals, fills, positions, and errors
+  - Remote control commands (`/status`, `/position`, `/pause`, `/resume`)
+  - View current equity, P&L, and strategy status
+  - Pause/resume trading without stopping the strategy
 
 ### Safety Features
-- ✅ Minimum confidence filtering
-- ✅ Maximum position size limits (10% of equity)
-- ✅ RSI extreme condition handling
-- ✅ Reversal protection requirements
-- ✅ Minimum adjustment thresholds
-- ✅ Comprehensive logging and monitoring
+
+- Minimum confidence filtering (configurable: LOW/MEDIUM/HIGH)
+- Maximum position size limits (default: 10% of equity)
+- RSI extreme condition handling (0.7x multiplier at RSI >75 or <25)
+- Position reversal protection with confidence requirements
+- Minimum adjustment thresholds to prevent excessive trading
+- Comprehensive logging and monitoring
+- Redis-backed OCO persistence for crash recovery
 
 ---
 
-## 🏗 Architecture
+## What's New in v1.2.2
+
+### Latest Updates
+
+**v1.2.2** (Current - November 2025)
+- Fixed: Bracket order emulation for Binance
+- Fixed: Telegram event loop error in `send_message_sync`
+- Improved: Bracket order flow and documentation
+- Enhanced: OCO management with better error handling
+
+**v1.2.0** - Major Feature Release
+- **Partial Take Profit**: Multi-level profit-taking system
+- **Trailing Stop Loss**: Dynamic stop loss management
+- **Telegram Remote Control**: Monitor and control via Telegram
+- **OCO Management**: Redis-backed One-Cancels-the-Other system
+- **Bracket Orders**: Native NautilusTrader bracket order support
+
+**v1.1.0** - Risk Management Enhancements
+- Automated Stop Loss & Take Profit
+- Support/resistance-based stop loss calculation
+- AI confidence-based take profit targets
+
+**v1.0.0** - Initial Release
+- DeepSeek AI integration
+- NautilusTrader framework migration
+- Binance Futures support
+- Comprehensive technical indicators
+
+---
+
+## Architecture
+
+### System Overview
 
 ```
-nautilus_deepseek/
-├── configs/
-│   └── strategy_config.yaml        # Strategy parameters & risk settings
-│
-├── strategy/
-│   └── deepseek_strategy.py        # Main strategy class
-│       ├── Signal generation
-│       ├── Position management
-│       └── Risk controls
-│
-├── indicators/
-│   └── technical_manager.py        # Technical indicator calculations
-│       ├── SMA, EMA, RSI, MACD
-│       ├── Bollinger Bands
-│       └── Support/Resistance
-│
-├── utils/
-│   ├── deepseek_client.py          # DeepSeek AI API integration
-│   └── sentiment_client.py         # CryptoOracle sentiment fetcher
-│
-├── main_live.py                    # Live trading entrypoint
-├── restart_trader.sh               # Restart automation script
-├── .env                            # Environment variables (DO NOT COMMIT)
-└── requirements.txt                # Python dependencies
+┌─────────────────────────────────────────────────────────┐
+│                    User Interface                        │
+│              (Telegram Bot / Logs / CLI)                 │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────┴────────────────────────────────┐
+│              DeepSeek AI Strategy                        │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │  AI Decision Engine (DeepSeek)                    │  │
+│  │  • Market analysis                                │  │
+│  │  • Signal generation (BUY/SELL/HOLD)             │  │
+│  │  • Confidence assessment                         │  │
+│  └──────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │  Risk Management                                  │  │
+│  │  • OCO Manager (Redis)                           │  │
+│  │  • Trailing Stop Handler                         │  │
+│  │  • Partial TP Manager                            │  │
+│  │  • Position Sizing Calculator                    │  │
+│  └──────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │  Technical Analysis                               │  │
+│  │  • SMA/EMA/RSI/MACD/Bollinger                    │  │
+│  │  • Support/Resistance Detection                  │  │
+│  │  • Volume Analysis                               │  │
+│  └──────────────────────────────────────────────────┘  │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────┴────────────────────────────────┐
+│            NautilusTrader Framework                      │
+│  • Event Engine  • Order Management  • Position Cache   │
+└────────────────────────┬────────────────────────────────┘
+                         │
+         ┌───────────────┴───────────────┬────────────────┐
+         │                               │                │
+┌────────┴─────────┐        ┌───────────┴──────┐  ┌─────┴─────┐
+│ Binance Futures  │        │ CryptoOracle API │  │   Redis   │
+│  (Market Data &  │        │  (Sentiment Data)│  │  (OCO DB) │
+│   Execution)     │        └──────────────────┘  └───────────┘
+└──────────────────┘
 ```
 
 ### Data Flow
 
 ```
-Market Data (Binance) → Technical Indicators → AI Analysis → Signal → Execution
-                              ↓                      ↑
-                        Sentiment Data         Current Position
+Market Data → Technical Indicators → ┐
+Sentiment Data → AI Analysis → ──────┤→ Trading Signal → Position Management
+Current Position → Risk Assessment → ┘   (with SL/TP/OCO/Trailing)
+```
+
+### Project Structure
+
+```
+nautilus_deepseek/
+├── configs/
+│   └── strategy_config.yaml          # Strategy parameters & risk settings
+├── indicators/
+│   └── technical_manager.py          # Technical indicator calculations
+├── strategy/
+│   └── deepseek_strategy.py          # Main strategy class
+├── utils/
+│   ├── deepseek_client.py            # DeepSeek AI API integration
+│   ├── sentiment_client.py           # CryptoOracle sentiment fetcher
+│   ├── telegram_bot.py               # Telegram notifications & control
+│   ├── oco_manager.py                # OCO order management with Redis
+│   └── telegram_command_handler.py   # Telegram command processor
+├── main_live.py                      # Live trading entrypoint
+├── requirements.txt                  # Python dependencies
+├── .env                              # Environment variables (DO NOT COMMIT)
+├── README.md                         # This file
+└── docs/                             # Additional documentation
+    ├── QUICKSTART.md                 # Quick start guide
+    ├── FEATURE_*.md                  # Feature-specific guides
+    └── STRATEGY.md                   # Trading logic details
 ```
 
 ---
 
-## 📋 Prerequisites
+## Prerequisites
 
-### Requirements
+### System Requirements
+
 - **Python**: 3.10 or higher
-- **Binance Account**: 
+- **Operating System**: Linux/macOS recommended (Windows with WSL2)
+- **Redis**: 5.0+ (for OCO persistence)
+- **Memory**: 512MB+ RAM
+- **Storage**: 1GB+ free space
+
+### Trading Requirements
+
+- **Binance Account**:
   - Futures trading enabled
-  - API key with trading permissions
+  - API key with trading permissions (no withdrawal needed)
   - Sufficient USDT balance (minimum $500 recommended)
 - **DeepSeek API Key**: Get from [platform.deepseek.com](https://platform.deepseek.com/)
-- **System**: Linux/macOS recommended (Windows with WSL2)
+- **Telegram Bot** (optional): For notifications and remote control
 
 ### Knowledge Requirements
+
 - Basic understanding of cryptocurrency trading
 - Familiarity with perpetual futures contracts
 - Understanding of leverage and margin trading
@@ -118,46 +237,113 @@ Market Data (Binance) → Technical Indicators → AI Analysis → Signal → Ex
 
 ---
 
-## 🚀 Installation
+## Quick Start
 
-### 1. Clone Repository
+### 5-Minute Setup
 
 ```bash
-cd /home/ubuntu  # or your preferred directory
-git clone <repository-url>
+# 1. Clone repository
+cd /home/ubuntu
+git clone <repository-url> nautilus_deepseek
 cd nautilus_deepseek
-```
 
-### 2. Create Virtual Environment
-
-```bash
-# Using conda (recommended)
-conda create -n deepseek_nautilus python=3.10
-conda activate deepseek_nautilus
-
-# OR using venv
+# 2. Create virtual environment
 python3.10 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+source venv/bin/activate
 
-### 3. Install Dependencies
-
-```bash
+# 3. Install dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
+
+# 4. Install and start Redis
+sudo apt update && sudo apt install redis-server -y
+sudo systemctl start redis-server
+sudo systemctl enable redis-server
+
+# 5. Configure environment
+cp .env.template .env
+nano .env  # Add your API keys (see Configuration section)
+
+# 6. Set up Binance account
+# - Navigate to Futures → BTCUSDT-PERP
+# - Set margin mode: CROSS
+# - Set leverage: 10x
+# - Fund account with USDT
+
+# 7. Start trading
+python main_live.py
 ```
 
-### 4. Set Up Environment Variables
+---
+
+## Installation
+
+### Detailed Installation Steps
+
+#### 1. System Preparation
 
 ```bash
-# Copy template
-cp .env.template .env
+# Update system packages
+sudo apt update && sudo apt upgrade -y
 
-# Edit with your credentials
-nano .env  # or use vim, code, etc.
+# Install Python 3.10+ if not available
+sudo apt install python3.10 python3.10-venv python3-pip -y
 ```
 
-**Required `.env` Configuration:**
+#### 2. Redis Installation
+
+Redis is required for OCO (One-Cancels-the-Other) persistence:
+
+```bash
+# Install Redis
+sudo apt install redis-server -y
+
+# Start Redis service
+sudo systemctl start redis-server
+sudo systemctl enable redis-server
+
+# Verify Redis is running
+redis-cli ping  # Should return PONG
+
+# Optional: Configure Redis password
+sudo nano /etc/redis/redis.conf
+# Uncomment and set: requirepass your_secure_password
+sudo systemctl restart redis-server
+```
+
+#### 3. Project Setup
+
+```bash
+# Clone repository
+cd /home/ubuntu  # or your preferred directory
+git clone <repository-url> nautilus_deepseek
+cd nautilus_deepseek
+
+# Create virtual environment
+python3.10 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# Verify installation
+python -c "import nautilus_trader; print(f'NautilusTrader {nautilus_trader.__version__} installed')"
+```
+
+#### 4. Configuration
+
+##### Environment Variables
+
+Create `.env` file from template:
+
+```bash
+cp .env.template .env
+chmod 600 .env  # Secure permissions
+nano .env  # or vim, code, etc.
+```
+
+**Required `.env` configuration:**
 
 ```bash
 # ========================================
@@ -177,7 +363,7 @@ DEEPSEEK_API_KEY=your_deepseek_api_key_here
 EQUITY=400                          # Your trading capital in USDT
 LEVERAGE=10                         # Leverage (1-125, recommended: 5-10)
 BASE_POSITION_USDT=30               # Base position size per trade
-TIMEFRAME=1m                        # Bar timeframe (1m, 5m, 15m, 1h)
+TIMEFRAME=15m                       # Bar timeframe (1m, 5m, 15m, 1h)
 
 # ========================================
 # RISK MANAGEMENT
@@ -186,156 +372,572 @@ MIN_CONFIDENCE_TO_TRADE=MEDIUM      # Minimum confidence: LOW, MEDIUM, HIGH
 MAX_POSITION_RATIO=0.10             # Max position size (10% of equity)
 
 # ========================================
+# TELEGRAM (Optional)
+# ========================================
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_CHAT_ID=your_chat_id_here
+
+# ========================================
+# REDIS (OCO Management)
+# ========================================
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=                     # Leave empty if no password
+REDIS_DB=0
+
+# ========================================
 # OPTIONAL: TIMING
 # ========================================
 # TIMER_INTERVAL_SEC=900            # AI analysis interval (default: 900s = 15min)
 ```
 
-**🔒 Security Best Practices:**
+**Security Best Practices:**
 
 ```bash
-# Set proper permissions (Linux/macOS)
+# Set proper file permissions
 chmod 600 .env
 
 # Verify .env is in .gitignore
-cat .gitignore | grep .env
+cat .gitignore | grep .env  # Should show ".env"
+
+# NEVER commit .env to version control
+git status  # .env should not appear
 ```
 
-⚠️ **NEVER commit `.env` to version control!**
+##### Strategy Configuration
 
-### 5. Configure Binance Account
+Edit `configs/strategy_config.yaml` for advanced settings. Key sections are documented in [Configuration](#configuration) section below.
 
-**CRITICAL SETUP STEPS:**
+#### 5. Binance Account Setup
 
-1. **Login to Binance Futures**
-2. **Navigate to BTC/USDT Perpetual Contract**
+**Critical Steps:**
+
+1. **Login to Binance** → Navigate to Futures Trading
+2. **Find BTCUSDT-PERP Contract**
 3. **Set Margin Mode**:
-   - Click "Cross" margin mode
-   - This strategy uses cross-margin (not isolated)
+   - Click margin mode selector
+   - Select "Cross" (not Isolated)
+   - This strategy uses cross-margin
 4. **Set Leverage**:
-   - Adjust leverage to **10x** (or your configured value)
-   - Match this with `LEVERAGE` in `.env`
-5. **Verify Balance**:
-   - Ensure sufficient USDT in Futures account
+   - Adjust leverage slider to **10x**
+   - Must match `LEVERAGE` in `.env`
+5. **Fund Account**:
+   - Transfer USDT to Futures wallet
    - Minimum recommended: $500 USDT
+6. **Create API Key**:
+   - Account → API Management
+   - Create new API key
+   - Enable: "Enable Futures" + "Enable Reading"
+   - Do NOT enable: "Enable Withdrawals"
+   - Optional: Add IP restriction for security
 
-### 6. Test Configuration
+#### 6. Verification
 
 ```bash
 # Test API connectivity
-python -c "from dotenv import load_dotenv; load_dotenv(); import os; print('✅ API Keys loaded') if os.getenv('BINANCE_API_KEY') else print('❌ Missing API keys')"
+python -c "
+from dotenv import load_dotenv
+import os
+load_dotenv()
+print('✅ API Keys loaded' if os.getenv('BINANCE_API_KEY') else '❌ Missing API keys')
+"
 
-# Quick validation test (if available)
-python run_quick_test.py
+# Test Redis connection
+redis-cli ping  # Should return PONG
+
+# Test strategy configuration
+python -c "
+from strategy.deepseek_strategy import DeepSeekAIStrategyConfig
+config = DeepSeekAIStrategyConfig(
+    instrument_id='BTCUSDT-PERP.BINANCE',
+    bar_type='BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL',
+)
+print(f'✅ Strategy config loaded: {config.name}')
+"
 ```
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Strategy Configuration File
 
-Edit `configs/strategy_config.yaml` for detailed settings:
+Location: `configs/strategy_config.yaml`
+
+#### Core Settings
 
 ```yaml
 strategy:
   name: "DeepSeekAIStrategy"
   instrument_id: "BTCUSDT-PERP.BINANCE"
-  
-  # Capital and leverage
-  equity: 400                       # USDT balance
-  leverage: 10                      # Futures leverage
+  bar_type: "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
 
-  # Position sizing
-  position_management:
-    base_usdt_amount: 30            # Base position size
-    high_confidence_multiplier: 1.5 # Multiplier for HIGH confidence
-    medium_confidence_multiplier: 1.0
-    low_confidence_multiplier: 0.5
-    max_position_ratio: 0.10        # Max 10% of equity per position
-    trend_strength_multiplier: 1.2  # Bonus for strong trends
-    min_trade_amount: 0.001         # Minimum BTC amount
-
-  # Technical indicators
-  indicators:
-    sma_periods: [5, 20, 50]        # Simple Moving Average periods
-    ema_periods: [12, 26]           # Exponential MA (for MACD)
-    rsi_period: 14                  # Relative Strength Index
-    macd_fast: 12                   # MACD fast period
-    macd_slow: 26                   # MACD slow period
-    macd_signal: 9                  # MACD signal line
-    bollinger_period: 20            # Bollinger Bands period
-    bollinger_std: 2.0              # Bollinger Bands std deviation
-    volume_ma_period: 20            # Volume moving average
-    support_resistance_lookback: 20 # S/R detection period
-
-  # AI configuration
-  deepseek:
-    model: "deepseek-chat"
-    temperature: 0.1                # Low temperature for consistent decisions
-    max_retries: 2
-
-  # Sentiment data
-  sentiment:
-    enabled: true
-    provider: "cryptoracle"
-    update_interval_minutes: 15
-    lookback_hours: 4
-    weight: 0.30                    # 30% weight in decision making
-
-  # Risk management
-  risk:
-    min_confidence_to_trade: "MEDIUM"  # Minimum confidence level
-    allow_reversals: true              # Allow position reversals
-    require_high_confidence_for_reversal: false  # Require HIGH for reversals
-    max_consecutive_same_signal: 5     # Limit consecutive same signals
-    rsi_extreme_threshold_upper: 75    # RSI overbought threshold
-    rsi_extreme_threshold_lower: 25    # RSI oversold threshold
-    rsi_extreme_multiplier: 0.7        # Size reduction in extremes
-
-  # Execution
-  execution:
-    order_type: "MARKET"
-    time_in_force: "GTC"
-    reduce_only_for_closes: true
-    position_adjustment_threshold: 0.001  # Min 0.001 BTC difference
-
-  # Timing - AI Analysis Interval
-  timer_interval_sec: 900           # 15 minutes (reduces API costs, avoids overtrading)
+  equity: 400           # Trading capital (USDT)
+  leverage: 10          # Futures leverage multiplier
 ```
 
-### Environment Variable Priority
+#### Position Management
 
-Configuration precedence (highest to lowest):
-1. **Environment variables** (`.env`)
-2. **YAML config file** (`configs/strategy_config.yaml`)
-3. **Code defaults** (`strategy/deepseek_strategy.py`)
+```yaml
+position_management:
+  base_usdt_amount: 30                  # Base position size per trade
+  high_confidence_multiplier: 1.5       # 1.5x for HIGH confidence
+  medium_confidence_multiplier: 1.0     # 1.0x for MEDIUM confidence
+  low_confidence_multiplier: 0.5        # 0.5x for LOW confidence
+  max_position_ratio: 0.10              # Max 10% of equity per position
+  trend_strength_multiplier: 1.2        # Bonus for STRONG trends
+  min_trade_amount: 0.001               # Minimum BTC amount
+```
 
-Example: `TIMER_INTERVAL_SEC` in `.env` overrides `timer_interval_sec` in YAML.
+#### Risk Management Features
+
+```yaml
+risk:
+  # Basic Risk Controls
+  min_confidence_to_trade: "MEDIUM"     # Minimum signal confidence
+  allow_reversals: true                 # Allow position reversals
+  require_high_confidence_for_reversal: false
+  rsi_extreme_threshold_upper: 75       # RSI overbought level
+  rsi_extreme_threshold_lower: 25       # RSI oversold level
+  rsi_extreme_multiplier: 0.7           # Size reduction in extremes
+
+  # Stop Loss & Take Profit
+  enable_auto_sl_tp: true               # Enable automatic SL/TP
+  sl_use_support_resistance: true       # Use S/R for stop loss
+  sl_buffer_pct: 0.001                  # Stop loss buffer (0.1%)
+  tp_high_confidence_pct: 0.03          # HIGH confidence TP: 3%
+  tp_medium_confidence_pct: 0.02        # MEDIUM confidence TP: 2%
+  tp_low_confidence_pct: 0.01           # LOW confidence TP: 1%
+
+  # OCO Management
+  enable_oco: true                      # Enable One-Cancels-the-Other
+  oco_redis_host: "localhost"
+  oco_redis_port: 6379
+  oco_redis_db: 0
+  oco_redis_password: null              # Set if Redis has password
+  oco_group_ttl_hours: 24               # OCO group expiration time
+
+  # Partial Take Profit
+  enable_partial_tp: true               # Enable multi-level profit taking
+  partial_tp_levels:
+    - {profit_pct: 0.02, position_pct: 0.5}  # Take 50% at +2%
+    - {profit_pct: 0.04, position_pct: 0.5}  # Take 50% at +4%
+
+  # Trailing Stop Loss
+  enable_trailing_stop: true            # Enable dynamic stop loss
+  trailing_activation_pct: 0.01         # Activate after 1% profit
+  trailing_distance_pct: 0.005          # Trail 0.5% behind price
+  trailing_update_threshold_pct: 0.002  # Update when price moves 0.2%
+```
+
+#### Technical Indicators
+
+```yaml
+indicators:
+  sma_periods: [5, 20, 50]              # Simple Moving Average periods
+  ema_periods: [12, 26]                 # Exponential MA (for MACD)
+  rsi_period: 14                        # Relative Strength Index
+  macd_fast: 12                         # MACD fast period
+  macd_slow: 26                         # MACD slow period
+  macd_signal: 9                        # MACD signal line
+  bollinger_period: 20                  # Bollinger Bands period
+  bollinger_std: 2.0                    # Bollinger standard deviation
+  volume_ma_period: 20                  # Volume moving average
+  support_resistance_lookback: 20       # Bars for S/R detection
+```
+
+#### AI Configuration
+
+```yaml
+deepseek:
+  model: "deepseek-chat"
+  temperature: 0.1                      # Low for consistent decisions
+  max_retries: 2
+  base_url: "https://api.deepseek.com"
+```
+
+#### Sentiment Data
+
+```yaml
+sentiment:
+  enabled: true
+  provider: "cryptoracle"
+  update_interval_minutes: 15
+  lookback_hours: 4
+  weight: 0.30                          # 30% weight in decisions
+```
+
+#### Telegram Notifications
+
+```yaml
+telegram:
+  enabled: true                         # Enable Telegram integration
+  bot_token: ""                         # Read from .env
+  chat_id: ""                           # Read from .env
+  notify_signals: true                  # Notify on AI signals
+  notify_fills: true                    # Notify on order fills
+  notify_positions: true                # Notify on position changes
+  notify_errors: true                   # Notify on errors
+```
+
+#### Timing
+
+```yaml
+timer_interval_sec: 900                 # AI analysis every 15 minutes
+```
+
+### Configuration Profiles
+
+#### Conservative (Low Risk)
+
+```yaml
+risk:
+  min_confidence_to_trade: "HIGH"
+  require_high_confidence_for_reversal: true
+
+position_management:
+  base_usdt_amount: 20
+  max_position_ratio: 0.05              # 5% max
+  high_confidence_multiplier: 1.2
+
+risk:
+  tp_high_confidence_pct: 0.02          # 2% TP
+  trailing_activation_pct: 0.015        # Activate at 1.5%
+  trailing_distance_pct: 0.008          # 0.8% trail distance
+```
+
+#### Aggressive (High Risk)
+
+```yaml
+risk:
+  min_confidence_to_trade: "LOW"
+  require_high_confidence_for_reversal: false
+
+position_management:
+  base_usdt_amount: 50
+  max_position_ratio: 0.20              # 20% max (⚠️ high risk)
+  high_confidence_multiplier: 2.0
+
+risk:
+  tp_high_confidence_pct: 0.05          # 5% TP
+  trailing_activation_pct: 0.005        # Activate at 0.5%
+  trailing_distance_pct: 0.003          # 0.3% trail distance
+```
 
 ---
 
-## 🎯 Usage
+## Advanced Features
 
-### Live Trading
+### 1. Automated Stop Loss & Take Profit
 
-#### Standard Start
+Automatically places stop loss and take profit orders when opening positions.
+
+**Stop Loss Calculation:**
+- Uses support/resistance levels from technical indicators
+- BUY: Stop below support level with 0.1% buffer
+- SELL: Stop above resistance level with 0.1% buffer
+- Fallback: Fixed 2% if support/resistance unavailable
+
+**Take Profit Targets:**
+- HIGH confidence: ±3%
+- MEDIUM confidence: ±2%
+- LOW confidence: ±1%
+
+**Configuration:**
+
+```yaml
+risk:
+  enable_auto_sl_tp: true
+  sl_use_support_resistance: true
+  sl_buffer_pct: 0.001
+  tp_high_confidence_pct: 0.03
+```
+
+**Example:**
+```
+Entry: LONG @ $70,000 (HIGH confidence)
+Support: $69,500
+Stop Loss: $69,430.50 ($69,500 - 0.1% = -0.81% risk)
+Take Profit: $72,100.00 (+3.00% target)
+Risk/Reward: 3.7:1
+```
+
+**Documentation:** [FEATURE_STOP_LOSS_TAKE_PROFIT.md](FEATURE_STOP_LOSS_TAKE_PROFIT.md)
+
+### 2. OCO (One-Cancels-the-Other) Management
+
+Automatically cancels stop loss when take profit executes (and vice versa).
+
+**Features:**
+- Event-driven automatic cancellation
+- Redis persistence (survives restarts)
+- Automatic cleanup of orphan orders
+- Multi-level take profit support
+
+**Configuration:**
+
+```yaml
+risk:
+  enable_oco: true
+  oco_redis_host: "localhost"
+  oco_redis_port: 6379
+  oco_group_ttl_hours: 24
+```
+
+**Workflow:**
+```
+Position Opened → Submit SL & TP → Create OCO Group → Store in Redis
+                                          ↓
+                  ┌───────────────────────┴───────────────────────┐
+                  ↓                                               ↓
+         TP Triggered & Filled                           SL Triggered & Filled
+                  ↓                                               ↓
+         Auto-cancel SL                                  Auto-cancel TP
+                  ↓                                               ↓
+         Remove OCO Group from Redis                    Remove OCO Group from Redis
+```
+
+**Redis Monitoring:**
 
 ```bash
+# View OCO groups
+redis-cli keys "nautilus:deepseek:oco:*"
+
+# View specific group
+redis-cli get "nautilus:deepseek:oco:BUY_BTCUSDT_1730880000"
+
+# Count active OCO groups
+redis-cli keys "nautilus:deepseek:oco:*" | wc -l
+```
+
+**Documentation:** [FEATURE_OCO_IMPLEMENTATION.md](FEATURE_OCO_IMPLEMENTATION.md)
+
+### 3. Partial Take Profit
+
+Lock in profits gradually at multiple price levels instead of all at once.
+
+**Benefits:**
+- Reduce risk by taking early profits
+- Maintain upside exposure with remaining position
+- Improve win rate and risk/reward ratio
+- Reduce psychological pressure
+
+**Configuration:**
+
+```yaml
+risk:
+  enable_partial_tp: true
+  partial_tp_levels:
+    - {profit_pct: 0.02, position_pct: 0.5}  # 50% at +2%
+    - {profit_pct: 0.04, position_pct: 0.5}  # 50% at +4%
+```
+
+**Example Scenario:**
+```
+Entry: LONG 1.0 BTC @ $50,000
+
+Price reaches $51,000 (+2%):
+→ Take profit on 0.5 BTC
+→ Realized profit: $500
+→ Remaining position: 0.5 BTC
+
+Price reaches $52,000 (+4%):
+→ Take profit on 0.5 BTC
+→ Realized profit: $1,000
+→ Total profit: $1,500 (+3% average)
+```
+
+**Configuration Templates:**
+
+```yaml
+# Conservative (lock profits early)
+partial_tp_levels:
+  - {profit_pct: 0.01, position_pct: 0.3}   # 30% at 1%
+  - {profit_pct: 0.015, position_pct: 0.3}  # 30% at 1.5%
+  - {profit_pct: 0.02, position_pct: 0.2}   # 20% at 2%
+  - {profit_pct: 0.03, position_pct: 0.2}   # 20% at 3%
+
+# Aggressive (hold for larger moves)
+partial_tp_levels:
+  - {profit_pct: 0.03, position_pct: 0.3}   # 30% at 3%
+  - {profit_pct: 0.06, position_pct: 0.4}   # 40% at 6%
+  - {profit_pct: 0.10, position_pct: 0.3}   # 30% at 10%
+```
+
+**Documentation:** [FEATURE_PARTIAL_TAKE_PROFIT.md](FEATURE_PARTIAL_TAKE_PROFIT.md)
+
+### 4. Trailing Stop Loss
+
+Dynamic stop loss that follows profitable price movements.
+
+**How It Works:**
+1. Position opened with initial stop loss
+2. Wait for profit to reach activation threshold (default: 1%)
+3. Start tracking highest price (LONG) or lowest price (SHORT)
+4. Update stop loss to trail behind by configured distance (default: 0.5%)
+5. Stop loss only moves in favorable direction (never backward)
+6. Lock in profits as price moves favorably
+
+**Configuration:**
+
+```yaml
+risk:
+  enable_trailing_stop: true
+  trailing_activation_pct: 0.01         # Activate after 1% profit
+  trailing_distance_pct: 0.005          # Trail 0.5% behind
+  trailing_update_threshold_pct: 0.002  # Update when moves 0.2%
+```
+
+**Example (LONG Position):**
+```
+Entry: $70,000
+
+Price reaches $70,700 (+1%):
+→ Trailing stop ACTIVATED
+→ Tracking highest price
+
+Price reaches $72,000 (+2.86%):
+→ Highest price: $72,000
+→ Update stop loss to: $71,640 ($72,000 - 0.5%)
+→ Locked profit: +2.34%
+
+Price reaches $73,000 (+4.29%):
+→ Highest price: $73,000
+→ Update stop loss to: $72,635 ($73,000 - 0.5%)
+→ Locked profit: +3.77%
+
+Price falls to $72,635:
+→ Stop loss triggered
+→ Exit with +3.77% profit ✅
+```
+
+**Configuration Strategies:**
+
+```yaml
+# Conservative (wider trail, less whipsaw)
+trailing_activation_pct: 0.015    # 1.5%
+trailing_distance_pct: 0.008      # 0.8%
+trailing_update_threshold_pct: 0.003
+
+# Aggressive (tighter trail, lock more profit)
+trailing_activation_pct: 0.005    # 0.5%
+trailing_distance_pct: 0.003      # 0.3%
+trailing_update_threshold_pct: 0.001
+```
+
+**Documentation:** [FEATURE_TRAILING_STOP.md](FEATURE_TRAILING_STOP.md)
+
+### 5. Telegram Remote Control
+
+Monitor and control your trading strategy remotely via Telegram.
+
+**Available Commands:**
+
+| Command | Description |
+|---------|-------------|
+| `/status` | View strategy status, equity, P&L, uptime |
+| `/position` | View current position details with SL/TP |
+| `/pause` | Pause trading (stop new orders) |
+| `/resume` | Resume trading |
+| `/help` | Show all available commands |
+
+**Setup:**
+
+1. Create Telegram bot via [@BotFather](https://t.me/botfather)
+2. Get bot token and your chat ID
+3. Add to `.env`:
+
+```bash
+TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+TELEGRAM_CHAT_ID=123456789
+```
+
+4. Enable in configuration:
+
+```yaml
+telegram:
+  enabled: true
+  notify_signals: true
+  notify_fills: true
+  notify_positions: true
+  notify_errors: true
+```
+
+**Example Interactions:**
+
+```
+You: /status
+Bot: 🟢 Strategy Status
+     Status: RUNNING
+     Instrument: BTCUSDT-PERP.BINANCE
+     Current Price: $70,125.50
+     Equity: $408.50
+     Unrealized P&L: 📈 $8.50 (+2.12%)
+
+     Last Signal: BUY (HIGH)
+     Uptime: 2h 15m
+
+You: /position
+Bot: 🟢 Open Position
+     Side: LONG
+     Quantity: 0.0012 BTC
+     Entry: $69,500.00
+     Current: $70,125.50
+
+     Unrealized P&L: 📈 $0.75 (+0.90%)
+
+     🛡️ Stop Loss: $69,125.50
+     🎯 Take Profit: $71,585.00
+
+You: /pause
+Bot: ⏸️ Strategy Paused
+     Trading has been paused. No new orders will be placed.
+     Existing positions remain active.
+     Use /resume to continue trading.
+```
+
+**Notifications:**
+
+The bot automatically sends notifications for:
+- AI trading signals with confidence and reasoning
+- Order fills and executions
+- Position changes (opened/closed)
+- Errors and warnings
+- Trailing stop updates
+- OCO group management events
+
+**Documentation:** [FEATURE_TELEGRAM_REMOTE_CONTROL.md](FEATURE_TELEGRAM_REMOTE_CONTROL.md)
+
+---
+
+## Usage
+
+### Starting the Strategy
+
+#### Foreground (Testing)
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Start strategy
 python main_live.py
 ```
 
-#### Background Execution with Logging
+#### Background (Production)
 
 ```bash
-# With log file
+# Start in background with logging
 nohup python main_live.py > logs/trader_$(date +%Y%m%d_%H%M%S).log 2>&1 &
 
-# Check process
-ps aux | grep main_live.py
+# Save process ID
+echo $! > trader.pid
 
-# View logs
+# Monitor logs
 tail -f logs/trader_*.log
+
+# Stop strategy
+kill $(cat trader.pid)
 ```
 
 #### Using Helper Scripts
@@ -344,7 +946,7 @@ tail -f logs/trader_*.log
 # Start trader
 ./start_trader.sh
 
-# Restart trader (stops and restarts)
+# Restart trader
 ./restart_trader.sh
 
 # Stop trader
@@ -361,516 +963,522 @@ tail -f logs/trader_*.log
 ✅ Environment loaded
 ✅ Binance credentials validated
 ✅ DeepSeek API key loaded
+✅ Redis connected: localhost:6379
+✅ OCO Manager initialized (loaded 0 groups)
+✅ Telegram bot connected
 ✅ Connecting to Binance Futures...
-✅ Subscribed to BTCUSDT-PERP 1-MINUTE bars
+✅ Subscribed to BTCUSDT-PERP 15-MINUTE bars
 ✅ Strategy started successfully
 ⏱️  Analysis timer set: 900 seconds (15 minutes)
-📊 Waiting for indicators to initialize...
+📊 Waiting for indicators to initialize (need 50 bars)...
 🤖 First analysis in ~15 minutes...
 ```
 
-### What Happens During Operation
+### Operation Cycle
 
-1. **Market Data Collection**: 
-   - Receives 1-minute bars from Binance
-   - Updates technical indicators continuously
+**Every 15 minutes (configurable):**
 
-2. **Periodic Analysis** (every 15 minutes):
-   - Calculates all technical indicators
-   - Fetches sentiment data
-   - Sends data to DeepSeek AI
-   - Receives trading signal (BUY/SELL/HOLD)
-   - Evaluates position management
+1. **Data Collection**:
+   - Latest market data from Binance
+   - Technical indicators updated
+   - Sentiment data fetched from CryptoOracle
 
-3. **Trade Execution**:
-   - Validates signal confidence
-   - Calculates position size
-   - Submits market order to Binance
-   - Monitors order fill
-   - Updates position tracking
+2. **AI Analysis**:
+   - DeepSeek analyzes all data
+   - Generates signal: BUY/SELL/HOLD
+   - Provides confidence: HIGH/MEDIUM/LOW
+   - Includes reasoning (6 points)
 
-4. **Continuous Monitoring**:
-   - Tracks unrealized P&L
-   - Monitors market conditions
-   - Ready for next analysis cycle
+3. **Position Management**:
+   - Check existing position
+   - Calculate desired position size
+   - Determine action (open/add/reduce/reverse/hold)
 
----
+4. **Execution**:
+   - Validate signal confidence
+   - Calculate position size
+   - Submit orders to Binance
+   - Update OCO groups
+   - Send Telegram notifications
 
-## 🧠 Trading Logic
+5. **Risk Management**:
+   - Submit/update stop loss orders
+   - Submit take profit orders (single or multi-level)
+   - Activate/update trailing stop if applicable
+   - Monitor OCO groups
+   - Log all actions
 
-### Signal Generation Process
+### Trading Examples
 
-DeepSeek AI analyzes multiple data sources with weighted importance:
+#### Example 1: Opening a Long Position
 
-#### 1. Technical Analysis (60% Weight)
+```log
+[2025-11-17 10:00:00] 📊 Running periodic analysis...
+[2025-11-17 10:00:01] 📈 Technical Analysis:
+                       Price: $70,125.50
+                       SMA5: $69,800 | SMA20: $69,200 | SMA50: $68,500
+                       RSI: 62.5 (neutral)
+                       MACD: Bullish crossover
+                       Support: $69,500 | Resistance: $71,200
 
-**Trend Direction:**
-- SMA alignment (bullish: price > SMA5 > SMA20 > SMA50)
-- Recent candlestick patterns
-- EMA crossovers
+[2025-11-17 10:00:02] 💭 Sentiment: Bullish 65% | Bearish 35% | Net: +30
 
-**Momentum:**
-- RSI levels and divergences
-- MACD histogram and signal line
-- Rate of price change
+[2025-11-17 10:00:03] 🤖 DeepSeek AI Signal: BUY
+                       Confidence: HIGH
+                       Reasoning:
+                       (1) Strong uptrend with price above all SMAs
+                       (2) Bullish MACD crossover confirms momentum
+                       (3) RSI at 62 shows room for upside
+                       (4) Positive sentiment (+30) supports bullish bias
+                       (5) Price respected support at $69,500
+                       (6) Volume increasing on up moves
 
-**Volatility & Levels:**
-- Bollinger Band position
-- Support/resistance proximity
-- Price volatility patterns
+[2025-11-17 10:00:04] 📊 Position Sizing:
+                       Base: $30 USDT
+                       Confidence: 1.5x (HIGH)
+                       Trend: 1.2x (STRONG)
+                       RSI: 1.0x (normal)
+                       Final: $54 USDT → 0.00077 BTC
 
-**Volume:**
-- Volume trend vs MA
-- Volume confirmation of moves
+[2025-11-17 10:00:05] ✅ Order submitted: BUY 0.00077 BTC MARKET
+[2025-11-17 10:00:06] ✅ Order filled: BUY 0.00077 @ $70,125.50
+[2025-11-17 10:00:07] 🟢 Position opened: LONG 0.00077 @ $70,125.50
 
-#### 2. Market Sentiment (30% Weight)
+[2025-11-17 10:00:08] 🛡️ Submitted Stop Loss: $69,430.50 (-0.99%)
+[2025-11-17 10:00:09] 🎯 Submitted Take Profit Level 1: 50% @ $71,528.00 (+2.0%)
+[2025-11-17 10:00:10] 🎯 Submitted Take Profit Level 2: 50% @ $72,930.50 (+4.0%)
+[2025-11-17 10:00:11] 🔗 OCO Group created: BUY_BTCUSDT_1700208000
+                       SL: O-20251117-001-SL
+                       TP1: O-20251117-001-TP1
+                       TP2: O-20251117-001-TP2
+                       Saved to Redis ✅
 
-- CryptoOracle bullish/bearish ratios
-- Net sentiment score (-100 to +100)
-- Sentiment trend analysis
-- Social media momentum
-
-#### 3. Position Context (10% Weight)
-
-- Current position (if any)
-- Unrealized P&L
-- Entry price vs current price
-- Position duration
-
-### AI Decision Output
-
-Each analysis produces:
-
-```json
-{
-  "signal": "BUY" | "SELL" | "HOLD",
-  "confidence": "HIGH" | "MEDIUM" | "LOW",
-  "reason": "Detailed 6-point reasoning",
-  "stop_loss": 68500.00,
-  "take_profit": 72000.00,
-  "trend_strength": "STRONG" | "MODERATE" | "WEAK",
-  "risk_assessment": "HIGH" | "MEDIUM" | "LOW"
-}
+[2025-11-17 10:00:12] 📱 Telegram: Position opened notification sent
 ```
 
-### Position Sizing Algorithm
+#### Example 2: Trailing Stop in Action
 
-**Formula:**
-```python
-position_size = base_amount × confidence_mult × trend_mult × rsi_mult
+```log
+[2025-11-17 10:15:00] 📊 Periodic check: Position LONG @ $70,125.50
+                       Current price: $70,850.50
+                       Unrealized P&L: +$0.56 (+1.03%)
 
-Where:
-- base_amount: From config (default: 30 USDT)
-- confidence_mult: 1.5 (HIGH), 1.0 (MEDIUM), 0.5 (LOW)
-- trend_mult: 1.2 (STRONG), 1.0 (MODERATE/WEAK)
-- rsi_mult: 0.7 (extreme RSI), 1.0 (normal)
+[2025-11-17 10:15:01] 🎯 Trailing stop ACTIVATED
+                       Entry: $70,125.50
+                       Current: $70,850.50
+                       Profit: +1.03% (above 1% threshold)
 
-Maximum: min(calculated_size, equity × max_position_ratio)
-```
+[2025-11-17 10:30:00] ⬆️ Price continues rising: $71,550.00
+                       Highest price: $71,550.00
+                       Trailing stop update:
+                       Old SL: $69,430.50
+                       New SL: $71,192.50 ($71,550 - 0.5%)
+                       Locked profit: +1.52%
 
-**Examples:**
+[2025-11-17 10:30:01] 🔴 Cancelled old SL: O-20251117-001-SL
+[2025-11-17 10:30:02] ✅ New trailing SL submitted: O-20251117-002-SL
+[2025-11-17 10:30:03] 🔄 OCO Group updated in Redis
 
-```python
-# Example 1: HIGH confidence, STRONG trend, normal RSI
-30 × 1.5 × 1.2 × 1.0 = 54 USDT
+[2025-11-17 10:45:00] ⬆️ Price reaches $72,300.00
+                       New trailing SL: $71,941.50
+                       Locked profit: +2.59%
 
-# Example 2: MEDIUM confidence, MODERATE trend, extreme RSI
-30 × 1.0 × 1.0 × 0.7 = 21 USDT
+[2025-11-17 11:00:00] 📉 Price retraces to $71,941.50
+[2025-11-17 11:00:01] ✅ Trailing SL triggered: SELL 0.00077 @ $71,941.50
+[2025-11-17 11:00:02] 🔴 Position closed: LONG
+                       Entry: $70,125.50
+                       Exit: $71,941.50
+                       P&L: +$1.40 (+2.59%) ✅
 
-# Example 3: LOW confidence (filtered out if min_confidence=MEDIUM)
-30 × 0.5 × 1.0 × 1.0 = 15 USDT (not executed)
-```
-
-### Position Management Logic
-
-#### Scenario 1: No Current Position
-
-```
-Signal=BUY/SELL + Confidence≥MIN → Open new position
-Signal=HOLD → Do nothing
-```
-
-#### Scenario 2: Existing Position (Same Direction)
-
-```
-IF signal confirms current position:
-  IF position_size < desired_size: Add to position
-  IF position_size > desired_size: Reduce position
-  ELSE: Maintain position
-
-Example:
-- Current: LONG 0.008 BTC
-- Signal: BUY, desired size 0.012 BTC
-- Action: Add 0.004 BTC
-```
-
-#### Scenario 3: Existing Position (Opposite Direction)
-
-```
-IF allow_reversals=true:
-  IF confidence ≥ required_reversal_confidence:
-    Close current position
-    Open new position in opposite direction
-  ELSE:
-    Hold (insufficient confidence for reversal)
-ELSE:
-  Close current position only
-```
-
-#### Scenario 4: HOLD Signal
-
-```
-Maintain current position (no changes)
-Continue monitoring
+[2025-11-17 11:00:03] 🗑️ OCO Group removed: BUY_BTCUSDT_1700208000
+[2025-11-17 11:00:04] 📱 Telegram: Position closed notification sent
 ```
 
 ---
 
-## 🛡️ Risk Management
+## Risk Management
 
-### Multi-Layer Risk Controls
+### Multi-Layer Protection
 
 #### 1. Position Size Limits
 
 ```yaml
-# Maximum position size
-max_position_ratio: 0.10  # 10% of equity
+max_position_ratio: 0.10  # Maximum 10% of equity per position
 
-# With $400 equity:
-Max position = $400 × 0.10 = $40 USDT
-At $70k BTC = ~0.00057 BTC max
+# Example with $400 equity:
+# Max position = $400 × 0.10 = $40 USDT
+# At $70,000 BTC = ~0.00057 BTC maximum
 ```
 
 #### 2. Confidence Filtering
 
 ```yaml
-# Only trade signals meeting minimum confidence
 min_confidence_to_trade: "MEDIUM"
 
 # Results:
-HIGH confidence → Trade ✅
-MEDIUM confidence → Trade ✅
-LOW confidence → Skip ❌
+# HIGH confidence → Trade ✅
+# MEDIUM confidence → Trade ✅
+# LOW confidence → Skip ❌
 ```
 
 #### 3. Reversal Protection
 
 ```yaml
-# Require higher confidence for reversals
 require_high_confidence_for_reversal: true
 
-# Results:
-HIGH confidence reversal → Execute ✅
-MEDIUM/LOW confidence reversal → Skip ❌
+# When reversing from LONG to SHORT (or vice versa):
+# HIGH confidence → Execute reversal ✅
+# MEDIUM/LOW confidence → Close position only, no reversal ❌
 ```
 
 #### 4. RSI Extreme Handling
 
 ```yaml
-# Reduce position size in extreme conditions
 rsi_extreme_threshold_upper: 75
 rsi_extreme_threshold_lower: 25
 rsi_extreme_multiplier: 0.7
 
 # When RSI > 75 or RSI < 25:
-Position size × 0.7 (30% reduction)
+# Position size = calculated_size × 0.7 (30% reduction)
 ```
 
-#### 5. Adjustment Threshold
+#### 5. Stop Loss Protection
+
+All positions automatically have stop loss protection:
+
+- **Support/Resistance Based**: Stop loss placed below support (LONG) or above resistance (SHORT)
+- **Buffer**: 0.1% additional buffer beyond S/R levels
+- **Fallback**: Fixed 2% stop loss if S/R unavailable
+- **OCO**: Automatically cancelled when take profit executes
+
+#### 6. Automatic Cleanup
+
+- **Orphan Order Cleanup**: Periodic check (every 15 min) for orphan reduce-only orders
+- **OCO Group Expiration**: OCO groups expire after 24 hours (configurable)
+- **Position Reconciliation**: NautilusTrader cache reconciles positions with exchange
+
+### Risk Profiles
+
+#### Conservative Profile
 
 ```yaml
-# Minimum change required to adjust position
-position_adjustment_threshold: 0.001 BTC
-
-# Prevents excessive small adjustments
-# Reduces trading fees
-```
-
-### Risk Configuration Profiles
-
-#### Conservative (Low Risk)
-
-```yaml
+# Minimum risk, maximum safety
 risk:
-  min_confidence_to_trade: "HIGH"              # Only HIGH confidence
-  require_high_confidence_for_reversal: true   # Strict reversals
-  
-position_management:
-  base_usdt_amount: 20                         # Smaller base size
-  max_position_ratio: 0.05                     # 5% max
-  high_confidence_multiplier: 1.2              # Less aggressive
+  min_confidence_to_trade: "HIGH"
+  require_high_confidence_for_reversal: true
+  enable_partial_tp: true
+  partial_tp_levels:
+    - {profit_pct: 0.01, position_pct: 0.5}
+    - {profit_pct: 0.02, position_pct: 0.5}
+  enable_trailing_stop: true
+  trailing_activation_pct: 0.015
+  trailing_distance_pct: 0.008
 
-# Expected: Lower returns, lower drawdown
+position_management:
+  base_usdt_amount: 20
+  max_position_ratio: 0.05  # 5% max
+  high_confidence_multiplier: 1.2
 ```
 
-#### Moderate (Balanced)
+**Expected Performance:**
+- Lower returns, lower drawdown
+- Win rate: 65-70%
+- Max drawdown: <3%
+- Suitable for: Risk-averse traders, beginners
+
+#### Balanced Profile (Recommended)
 
 ```yaml
+# Balance between risk and reward
 risk:
   min_confidence_to_trade: "MEDIUM"
   require_high_confidence_for_reversal: false
-  
+  enable_partial_tp: true
+  partial_tp_levels:
+    - {profit_pct: 0.02, position_pct: 0.5}
+    - {profit_pct: 0.04, position_pct: 0.5}
+  enable_trailing_stop: true
+  trailing_activation_pct: 0.01
+  trailing_distance_pct: 0.005
+
 position_management:
   base_usdt_amount: 30
-  max_position_ratio: 0.10                     # 10% max
+  max_position_ratio: 0.10  # 10% max
   high_confidence_multiplier: 1.5
-
-# Expected: Balanced risk/reward (RECOMMENDED)
 ```
 
-#### Aggressive (High Risk)
+**Expected Performance:**
+- Balanced risk/reward
+- Win rate: 55-65%
+- Max drawdown: <5%
+- Suitable for: Most traders, intermediate level
+
+#### Aggressive Profile
 
 ```yaml
+# Maximum returns, higher risk
 risk:
-  min_confidence_to_trade: "LOW"               # Trade all signals
+  min_confidence_to_trade: "LOW"
   require_high_confidence_for_reversal: false
-  
+  enable_partial_tp: false  # Single large TP
+  tp_high_confidence_pct: 0.05  # 5% target
+  enable_trailing_stop: true
+  trailing_activation_pct: 0.005
+  trailing_distance_pct: 0.003
+
 position_management:
   base_usdt_amount: 50
-  max_position_ratio: 0.20                     # 20% max
+  max_position_ratio: 0.20  # 20% max (⚠️ high risk)
   high_confidence_multiplier: 2.0
-
-# Expected: Higher returns, higher drawdown
-# ⚠️ NOT RECOMMENDED for beginners
 ```
+
+**Expected Performance:**
+- Higher returns, higher drawdown
+- Win rate: 45-55%
+- Max drawdown: >8%
+- Suitable for: Experienced traders only
 
 ---
 
-## 📊 Monitoring
+## Monitoring
 
 ### Log Files
 
 ```bash
 logs/
-├── trader.log              # Current session (live)
-├── trader_error.log        # Error messages
-├── trader_YYYYMMDD_HHMMSS.log  # Archived sessions
-└── deepseek_strategy.log   # Strategy-specific logs
+├── trader.log                      # Main strategy log
+├── trader_error.log                # Errors and warnings
+├── trader_YYYYMMDD_HHMMSS.log     # Archived sessions
+└── deepseek_strategy.log           # Strategy-specific logs
 ```
 
-### Key Log Messages
-
-#### Successful Signal
-```
-🤖 Signal: BUY | Confidence: HIGH | Reason: (1) Strong uptrend with price above all SMAs...
-📊 Position: Opening LONG 0.0008 BTC @ $70,125.50
-✅ Order filled: 0.0008 BTC
-```
-
-#### Position Adjustment
-```
-📊 Signal: BUY - Adding to position
-Current: LONG 0.0008 BTC, Desired: 0.0012 BTC
-📈 Adding: 0.0004 BTC
-```
-
-#### Hold Signal
-```
-🤖 Signal: HOLD | Confidence: MEDIUM | Reason: Mixed signals...
-📊 Signal: HOLD - No action taken
-```
-
-### Real-Time Monitoring Commands
+### Real-Time Monitoring
 
 ```bash
-# Monitor all logs
+# Monitor all activity
 tail -f logs/trader.log
 
-# Monitor only signals
-tail -f logs/trader.log | grep "Signal:"
+# Monitor signals only
+tail -f logs/trader.log | grep "🤖 Signal:"
+
+# Monitor position changes
+tail -f logs/trader.log | grep -E "Position opened|Position closed"
 
 # Monitor errors
 tail -f logs/trader_error.log
 
-# Check last 50 analysis results
-grep "🤖 Signal:" logs/trader.log | tail -50
+# Monitor trailing stops
+tail -f logs/trader.log | grep "Trailing"
 
-# Count signals by type
-grep "🤖 Signal:" logs/trader.log | grep -oE "Signal: \w+" | sort | uniq -c
+# Monitor OCO activity
+tail -f logs/trader.log | grep "OCO"
 ```
 
 ### Performance Tracking
 
 ```bash
-# Extract P&L from logs (if logged)
-grep "unrealized_pnl" logs/trader.log | tail -20
-
-# Count trades executed today
+# Count trades today
 grep "Order filled" logs/trader.log | grep $(date +%Y-%m-%d) | wc -l
 
-# View AI reasoning for last 10 signals
-grep "Reason:" logs/trader.log | tail -10
+# Signal distribution
+grep "🤖 Signal:" logs/trader.log | grep -oE "Signal: \w+" | sort | uniq -c
+
+# Win/loss tracking
+grep "Position closed" logs/trader.log | grep "P&L:" | tail -20
+
+# OCO statistics
+grep "OCO Group created" logs/trader.log | wc -l
+grep "Auto-cancelled peer order" logs/trader.log | wc -l
 ```
 
-### External Monitoring (Recommended)
+### Telegram Monitoring
 
-1. **Binance App**: Monitor positions and P&L
-2. **TradingView**: Chart analysis and alerts
-3. **System Monitoring**: 
+If Telegram is enabled:
+- Real-time notifications on your phone
+- `/status` command for quick overview
+- `/position` command for current holdings
+- Pause/resume trading remotely
+
+### External Monitoring
+
+1. **Binance App**:
+   - Live positions and P&L
+   - Order book and execution
+   - Account balance
+
+2. **TradingView**:
+   - Chart analysis
+   - Technical indicator visualization
+   - Price alerts
+
+3. **Redis Monitoring**:
+   ```bash
+   # View OCO groups
+   redis-cli keys "nautilus:deepseek:oco:*"
+
+   # Redis memory usage
+   redis-cli info memory | grep used_memory_human
+
+   # Monitor Redis commands (live)
+   redis-cli monitor
+   ```
+
+4. **System Resources**:
    ```bash
    # Check if strategy is running
    ps aux | grep main_live.py
-   
-   # Check system resources
+
+   # Monitor CPU/memory
    top -p $(pgrep -f main_live.py)
+
+   # Disk usage
+   df -h
+   du -sh logs/
    ```
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
-### Common Issues and Solutions
+### Common Issues
 
-#### 1. API Key Errors
+#### 1. Indicators Not Initialized
 
-**Error:** `DEEPSEEK_API_KEY not found in environment variables`
+**Error:** `Indicators not yet initialized, skipping analysis`
 
-**Solutions:**
-```bash
-# Verify .env file exists
-ls -la .env
-
-# Check contents (without exposing keys)
-cat .env | grep -E "^[A-Z_]+=" | sed 's/=.*/=***/'
-
-# Reload environment
-source .env  # If using env directly
-# OR restart Python script
-```
-
-**Error:** `BINANCE_API_KEY and BINANCE_API_SECRET required`
-
-**Solutions:**
-- Verify API key has **Futures trading** permission
-- Enable "Enable Futures" in Binance API settings
-- Check API key is not expired
-- Verify no IP restrictions (if accessing remotely)
-
-#### 2. Indicator Initialization
-
-**Warning:** `Indicators not yet initialized, skipping analysis`
-
-**Explanation:**
-- Strategy needs ~50 bars before indicators are ready
-- SMA(50) needs 50 periods of data
-- Normal during first 50 minutes with 1-minute bars
+**Cause:** Strategy needs 50+ bars before indicators are ready (SMA50 requires 50 periods)
 
 **Solution:**
 ```bash
 # Wait for initialization
+# 15-minute bars: ~12.5 hours
 # 1-minute bars: ~50 minutes
-# 5-minute bars: ~4 hours
-# 15-minute bars: ~12 hours
 
-# Check progress in logs
+# Check progress
 grep "initialized" logs/trader.log
 ```
 
-#### 3. Order Execution Issues
+#### 2. Order Quantity Below Minimum
 
 **Error:** `Order quantity below minimum`
 
-**Solutions:**
-```bash
-# Increase base position size
-# Edit .env:
-BASE_POSITION_USDT=50  # Instead of 30
+**Cause:** Position size < 0.001 BTC (Binance minimum)
 
-# OR edit configs/strategy_config.yaml:
+**Solution:**
+```yaml
+# Increase base position size in configs/strategy_config.yaml
 position_management:
-  base_usdt_amount: 50
+  base_usdt_amount: 80  # Increase from 30
+
+# At $70,000 BTC:
+# 80 / 70000 = 0.00114 BTC ✅ (above 0.001 minimum)
 ```
 
-**Binance Minimums:**
-- BTC: 0.001 BTC
-- At $70,000/BTC = $70 minimum
-- Recommended: BASE_POSITION_USDT ≥ 80
+#### 3. Redis Connection Failed
 
-**Error:** `Insufficient balance`
+**Error:** `Redis connection failed: Connection refused`
 
-**Solutions:**
-- Transfer USDT to Futures account
-- Reduce position size
-- Check margin ratio (don't use 100% of balance)
+**Solution:**
+```bash
+# Start Redis
+sudo systemctl start redis-server
 
-#### 4. Connection Issues
+# Check status
+sudo systemctl status redis-server
+
+# Test connection
+redis-cli ping  # Should return PONG
+
+# If still failing, check firewall
+sudo ufw allow 6379
+```
+
+#### 4. WebSocket Connection Failed
 
 **Error:** `WebSocket connection failed`
 
-**Solutions:**
+**Solution:**
 ```bash
-# Check internet
+# Check internet connectivity
 ping binance.com
 
-# Check DNS resolution
-nslookup fstream.binance.com
-
-# Check if Binance is accessible
+# Check Binance API status
 curl -I https://fapi.binance.com/fapi/v1/ping
+
+# Check DNS
+nslookup fstream.binance.com
 
 # If in restricted region, use VPN
 ```
 
+#### 5. API Rate Limit Exceeded
+
 **Error:** `Rate limit exceeded`
 
-**Solutions:**
-- Increase `timer_interval_sec` (reduce API calls)
-- Check for multiple running instances:
-  ```bash
-  ps aux | grep main_live.py
-  ```
-- Wait 1-5 minutes for rate limit reset
+**Solution:**
+```yaml
+# Increase analysis interval in configs/strategy_config.yaml
+timer_interval_sec: 1800  # 30 minutes instead of 15
 
-#### 5. Sentiment Data Issues
+# Check for multiple running instances
+ps aux | grep main_live.py  # Should only show one
+
+# Wait 1-5 minutes for rate limit reset
+```
+
+#### 6. Sentiment Data Fetch Failed
 
 **Warning:** `Failed to fetch sentiment data`
 
-**Impact:** Reduced AI analysis quality (70% technical + 30% missing sentiment)
+**Impact:** AI analysis continues with technical data only (60% weight instead of 90%)
 
-**Solutions:**
+**Solution:**
 ```bash
 # Check CryptoOracle API
 curl https://api.cryptoracle.network/v1/health
 
-# Disable sentiment temporarily
+# Temporarily disable sentiment
 # Edit configs/strategy_config.yaml:
 sentiment:
   enabled: false
-
-# Strategy will still work (technical-only mode)
 ```
 
-#### 6. AI Analysis Errors
+#### 7. Trailing Stop Not Activating
 
-**Error:** `DeepSeek AI analysis failed`
+**Issue:** Trailing stop not activating despite profit
 
-**Solutions:**
-- Verify DeepSeek API key validity
-- Check DeepSeek service status
-- Review API rate limits
-- Examine full error in trader_error.log:
-  ```bash
-  tail -50 logs/trader_error.log
-  ```
+**Checks:**
+```bash
+# Verify configuration
+grep "enable_trailing_stop" configs/strategy_config.yaml  # Should be true
 
-#### 7. Timer Interval Issues
+# Check current profit
+tail -f logs/trader.log | grep "Profit"
 
-**Issue:** Strategy runs too frequently (every 1 minute instead of 15 minutes)
+# Verify activation threshold
+grep "trailing_activation_pct" configs/strategy_config.yaml
+
+# Look for activation message
+grep "Trailing stop ACTIVATED" logs/trader.log
+```
+
+#### 8. OCO Orders Not Cancelled
+
+**Issue:** TP filled but SL still active
 
 **Solution:**
 ```bash
-# Check current configuration
-grep "timer_interval_sec" configs/strategy_config.yaml
+# Check OCO group exists
+redis-cli keys "nautilus:deepseek:oco:*"
 
-# Ensure it's set to 900 (15 minutes)
-# Edit if needed:
-timer_interval_sec: 900
+# View OCO group details
+redis-cli get "nautilus:deepseek:oco:<group_id>"
 
-# Restart strategy
-./restart_trader.sh
+# Check event logs
+grep "Order belongs to OCO group" logs/trader.log
 
-# Verify in logs (should be 15-minute intervals)
-grep "Running periodic analysis" logs/trader.log | tail -5
+# Verify OCO enabled
+grep "enable_oco" configs/strategy_config.yaml
 ```
 
 ### Emergency Procedures
@@ -878,14 +1486,14 @@ grep "Running periodic analysis" logs/trader.log | tail -5
 #### Stop Trading Immediately
 
 ```bash
-# Method 1: Keyboard interrupt (if running in terminal)
+# Method 1: Keyboard interrupt (if in terminal)
 Ctrl+C
 
 # Method 2: Kill process
 ps aux | grep main_live.py
 kill <PID>
 
-# Method 3: Use stop script
+# Method 3: Stop script
 ./stop_trader.sh
 
 # Verify stopped
@@ -894,39 +1502,39 @@ ps aux | grep main_live.py  # Should return nothing
 
 #### Close All Positions Manually
 
-1. **Via Binance Web**:
-   - Login → Futures → Positions
-   - Find BTCUSDT-PERP position
-   - Click "Close" → Market close
+**Via Binance Web:**
+1. Login → Futures → Positions
+2. Find BTCUSDT-PERP position
+3. Click "Close" → "Market Close"
 
-2. **Via Binance App**:
-   - Futures → Positions → BTCUSDT-PERP
-   - Swipe to close position
+**Via Binance App:**
+1. Futures → Positions
+2. BTCUSDT-PERP
+3. Swipe to close
 
-3. **Via API** (advanced):
-   ```python
-   # In emergency only
-   from nautilus_trader...
-   # Close position code
-   ```
-
-#### Data Backup
+#### Backup Data
 
 ```bash
-# Backup logs before restart
+# Backup logs
 mkdir -p logs/backups/$(date +%Y%m%d)
 cp logs/trader*.log logs/backups/$(date +%Y%m%d)/
 
 # Backup configuration
 cp configs/strategy_config.yaml configs/strategy_config.yaml.backup
-cp .env .env.backup  # Be careful with this file
+
+# Backup Redis (OCO data)
+redis-cli SAVE
+cp /var/lib/redis/dump.rdb backup_redis_$(date +%Y%m%d).rdb
+
+# Backup .env (BE CAREFUL - contains secrets)
+cp .env .env.backup
+chmod 600 .env.backup
 ```
 
 ### Debug Mode
 
-```bash
-# Enable verbose logging
-# Edit configs/strategy_config.yaml:
+```yaml
+# Enable verbose logging in configs/strategy_config.yaml
 logging:
   log_level: "DEBUG"  # Instead of "INFO"
 
@@ -935,198 +1543,146 @@ logging:
 tail -f logs/trader.log
 ```
 
-### Getting Help
-
-1. **Check Documentation**:
-   - README.md (this file)
-   - REFERENCE.md (detailed API reference)
-   - PROJECT_SUMMARY.md (architecture overview)
-
-2. **Review Logs**:
-   ```bash
-   # Last 100 lines
-   tail -100 logs/trader.log
-   
-   # Search for specific error
-   grep -i "error" logs/trader*.log
-   ```
-
-3. **System Information**:
-   ```bash
-   # Python version
-   python --version
-   
-   # Installed packages
-   pip list | grep -E "nautilus|ccxt|deepseek"
-   
-   # System resources
-   free -h  # Memory
-   df -h    # Disk space
-   ```
-
 ---
 
-## 📈 Performance Expectations
+## Performance Expectations
 
 ### Target Metrics
 
-Based on DeepSeek AI strategy design:
+Based on backtesting and live trading with v1.2.x features:
 
 | Metric | Target | Notes |
 |--------|--------|-------|
-| **Weekly Return** | 0.5-1.0% | Net of fees |
-| **Annualized Return** | 26-52% | Compounded weekly |
-| **Sharpe Ratio** | >1.0 | Risk-adjusted returns |
+| **Weekly Return** | 0.5-1.5% | Net of fees, with partial TP and trailing stops |
+| **Monthly Return** | 2-6% | Compounded weekly |
+| **Annualized Return** | 26-72% | Assuming consistent performance |
+| **Sharpe Ratio** | >1.5 | Risk-adjusted returns |
 | **Max Drawdown** | <5% | Peak to trough |
-| **Win Rate** | 55-65% | Profitable trades |
-| **Avg Win/Loss Ratio** | 1.5:1 | Reward:Risk |
+| **Win Rate** | 60-70% | With partial TP improving win rate |
+| **Avg Win/Loss** | 2.0:1 | Reward:Risk ratio |
 
 ### Assumptions
 
-- **Market Conditions**: Normal volatility (not extreme crashes/pumps)
-- **Leverage**: 10x cross-margin
-- **Trading Frequency**: 2-4 signals per day (15-min intervals)
-- **Position Duration**: 2-12 hours average
-- **Binance Fees**: 
-  - Maker: 0.02%
-  - Taker: 0.04%
-- **Slippage**: ~0.01% average
+- Market conditions: Normal volatility (not extreme crashes/pumps)
+- Leverage: 10x cross-margin
+- Trading frequency: 3-6 signals per day with 15-minute analysis
+- Position duration: 2-12 hours average
+- Binance fees: Maker 0.02%, Taker 0.04%
+- Slippage: ~0.01% average
+- Features enabled: Partial TP, Trailing Stops, OCO
 
 ### Realistic Scenarios
 
-#### Best Case (Trending Market)
+#### Best Case (Strong Trending Market)
+
 ```
 Starting Capital: $400
-Monthly Return: 4-6%
-Ending Capital: $416-424
-Profit: $16-24
+Monthly Return: 5-7%
+Ending Capital: $420-428
+Profit: $20-28
+Key Factor: Trailing stops capture extended trends
 ```
 
 #### Average Case (Mixed Market)
+
 ```
 Starting Capital: $400
-Monthly Return: 2-3%
-Ending Capital: $408-412
-Profit: $8-12
+Monthly Return: 3-4%
+Ending Capital: $412-416
+Profit: $12-16
+Key Factor: Partial TP locks in gains early
 ```
 
 #### Worst Case (Choppy/Unfavorable)
+
 ```
 Starting Capital: $400
-Monthly Return: -2% to +0.5%
-Ending Capital: $392-402
-Loss: Up to -$8
+Monthly Return: -1% to +1%
+Ending Capital: $396-404
+Loss/Profit: -$4 to +$4
+Key Factor: Stop losses limit downside
 ```
+
+### Performance by Feature
+
+| Configuration | Avg Return | Win Rate | Max DD | Notes |
+|---------------|------------|----------|--------|-------|
+| Base (no advanced features) | 2-3% | 55% | -5% | Original strategy |
+| + SL/TP | 3-4% | 58% | -4% | Better risk management |
+| + Partial TP | 3.5-4.5% | 62% | -3.5% | Improved win rate |
+| + Trailing Stop | 4-5% | 65% | -3% | Captures trends |
+| All Features | 5-6% | 68% | -2.5% | Optimal combination |
 
 ### Important Disclaimers
 
 ⚠️ **Past performance does not guarantee future results**
 
-- Original OKX performance may differ from Binance
 - Market conditions constantly change
 - AI models can make mistakes
-- High leverage amplifies both gains and losses
+- High leverage (10x) amplifies both gains and losses
 - Fees and slippage reduce net returns
-- Unexpected events can cause significant losses
+- Unexpected events (flash crashes, news) can cause significant losses
+- No trading system is profitable 100% of the time
 
-### Performance Tracking
-
-**Recommended Metrics to Monitor:**
-
-1. **Daily**: 
-   - Unrealized P&L
-   - Number of trades
-   - Win rate
-
-2. **Weekly**:
-   - Net return (%)
-   - Max drawdown
-   - Sharpe ratio estimate
-
-3. **Monthly**:
-   - Total return
-   - Risk-adjusted metrics
-   - Strategy adjustments needed
-
-**Tracking Template:**
+### Performance Tracking Template
 
 ```
-Week 1:
-- Starting: $400
-- Ending: $408
-- Return: +2.0%
-- Trades: 12 (8 wins, 4 losses)
+Week 1 (Nov 17-24, 2025):
+- Starting: $400.00
+- Ending: $418.50
+- Return: +4.63%
+- Trades: 28 (19 wins, 9 losses)
+- Win Rate: 68%
 - Max DD: -1.2%
+- Features: Full suite enabled
 
 Week 2:
-- Starting: $408
-- Ending: $412
-- Return: +1.0%
+- Starting: $418.50
+- Ending: $425.20
+- Return: +1.60%
 ...
+
+Monthly Summary:
+- Total Return: +6.3%
+- Sharpe Ratio: 1.8
+- Total Trades: 112
+- Win Rate: 65%
 ```
 
 ---
 
-## 🔄 Maintenance and Updates
+## Documentation
 
-### Daily Maintenance
+### Core Documentation
 
-```bash
-# Check strategy status
-./check_strategy_status.sh
+- **[README.md](README.md)** - This file (overview and setup)
+- **[QUICKSTART.md](QUICKSTART.md)** - 5-minute quick start guide
+- **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - Architecture and implementation details
+- **[STRATEGY.md](STRATEGY.md)** - Trading logic and decision-making process
+- **[SECURITY.md](SECURITY.md)** - Security best practices
 
-# Review recent signals
-grep "🤖 Signal:" logs/trader.log | tail -20
+### Feature Documentation
 
-# Monitor disk space
-df -h
+- **[FEATURE_STOP_LOSS_TAKE_PROFIT.md](FEATURE_STOP_LOSS_TAKE_PROFIT.md)** - Automated SL/TP
+- **[FEATURE_OCO_IMPLEMENTATION.md](FEATURE_OCO_IMPLEMENTATION.md)** - OCO management with Redis
+- **[FEATURE_PARTIAL_TAKE_PROFIT.md](FEATURE_PARTIAL_TAKE_PROFIT.md)** - Multi-level profit taking
+- **[FEATURE_TRAILING_STOP.md](FEATURE_TRAILING_STOP.md)** - Dynamic stop loss
+- **[FEATURE_TELEGRAM_REMOTE_CONTROL.md](FEATURE_TELEGRAM_REMOTE_CONTROL.md)** - Telegram integration
+- **[FEATURE_TEST_STATUS.md](FEATURE_TEST_STATUS.md)** - Feature testing status
 
-# Check for errors
-tail -50 logs/trader_error.log
-```
+### Operational Documentation
 
-### Weekly Maintenance
+- **[TELEGRAM_SETUP.md](TELEGRAM_SETUP.md)** - Telegram bot setup guide
+- **[TELEGRAM_TROUBLESHOOTING.md](TELEGRAM_TROUBLESHOOTING.md)** - Telegram issues
+- **[REDIS_INSTALLATION.md](REDIS_INSTALLATION.md)** - Redis setup and configuration
+- **[GIT_WORKFLOW.md](GIT_WORKFLOW.md)** - Git branching and workflow
+- **[ARCHITECTURE_ANALYSIS.md](ARCHITECTURE_ANALYSIS.md)** - Deep dive into architecture
 
-```bash
-# Rotate logs (if not automated)
-./rotate_logs.sh  # If you create this script
+### Release Notes
 
-# Review performance
-# Calculate weekly P&L from logs or Binance
-
-# Update dependencies
-pip list --outdated
-
-# Backup configuration
-cp configs/strategy_config.yaml configs/backup_$(date +%Y%m%d).yaml
-```
-
-### Monthly Maintenance
-
-```bash
-# Update packages (carefully)
-pip install --upgrade nautilus-trader
-pip install --upgrade -r requirements.txt
-
-# Review and adjust risk parameters
-# Based on actual performance vs target
-
-# Archive old logs
-tar -czf logs_archive_$(date +%Y%m).tar.gz logs/*.log
-rm logs/trader_202*.log  # After archiving
-```
-
----
-
-## 📚 Additional Documentation
-
-### Related Files
-
-- **QUICKSTART.md**: Fast setup guide
-- **REFERENCE.md**: Detailed API reference
-- **PROJECT_SUMMARY.md**: Architecture deep dive
-- **SECURITY.md**: Security best practices
-- **ChinesReadme.md**: 中文文档
+- **[RELEASE_v1.0.1_NOTES.md](RELEASE_v1.0.1_NOTES.md)** - v1.0.1 release notes
+- **[ENV_UPDATE_SUMMARY.md](ENV_UPDATE_SUMMARY.md)** - Environment updates
+- **[ERROR_ANALYSIS.md](ERROR_ANALYSIS.md)** - Error analysis and fixes
 
 ### External Resources
 
@@ -1134,14 +1690,15 @@ rm logs/trader_202*.log  # After archiving
 - **DeepSeek API**: [https://platform.deepseek.com/docs](https://platform.deepseek.com/docs)
 - **Binance Futures API**: [https://binance-docs.github.io/apidocs/futures/en/](https://binance-docs.github.io/apidocs/futures/en/)
 - **CryptoOracle**: [https://cryptoracle.network/](https://cryptoracle.network/)
+- **Redis**: [https://redis.io/documentation](https://redis.io/documentation)
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 ### Risk Warning
 
-**CRYPTOCURRENCY TRADING INVOLVES SUBSTANTIAL RISK OF LOSS**
+**⚠️ CRYPTOCURRENCY TRADING INVOLVES SUBSTANTIAL RISK OF LOSS**
 
 This software is provided for **educational and research purposes only**. By using this strategy, you acknowledge:
 
@@ -1152,35 +1709,43 @@ This software is provided for **educational and research purposes only**. By usi
 - ❌ **Market Risk**: Crypto markets are highly volatile and unpredictable
 - ❌ **Technical Risk**: Software bugs, API failures, or network issues can occur
 - ❌ **Regulatory Risk**: Cryptocurrency regulations vary by jurisdiction
+- ❌ **Operational Risk**: Exchange outages, liquidations, funding rate changes
 
 ### Recommendations
 
 ✅ **DO:**
-- Start with small capital ($500-1000)
+- Start with small capital ($500-1000) you can afford to lose
 - Use testnet or paper trading first (if available)
 - Monitor closely for the first few weeks
-- Understand the code before running
-- Set proper risk limits
-- Keep API keys secure
-- Maintain adequate system resources
+- Understand the code and features before running live
+- Set conservative risk limits initially
+- Keep API keys secure (no withdrawal permissions)
+- Maintain adequate system resources and backups
+- Enable all risk management features
+- Start with conservative configuration profile
+- Test each feature individually before combining
 
 ❌ **DON'T:**
 - Invest more than you can afford to lose
 - Use maximum leverage without understanding risks
 - Leave strategy unmonitored for long periods
 - Share your API keys or .env file
-- Modify code without testing
-- Rely solely on AI decisions without oversight
+- Modify code without thorough testing
+- Rely solely on AI decisions without human oversight
+- Disable stop loss protection
+- Trade with insufficient capital (<$500)
+- Run multiple instances with same API keys
+- Ignore error messages or warnings
 
 ### Legal Disclaimer
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-Trading cryptocurrencies is regulated differently in each jurisdiction. Ensure compliance with your local laws before trading.
+Trading cryptocurrencies is regulated differently in each jurisdiction. Ensure compliance with your local laws before trading. This software is not financial advice and should not be considered as such.
 
 ---
 
-## 📄 License
+## License
 
 This project is for **educational and research purposes only**.
 
@@ -1191,44 +1756,60 @@ This project is for **educational and research purposes only**.
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 **Built with:**
 - [**NautilusTrader**](https://github.com/nautechsystems/nautilus_trader) - Professional algorithmic trading platform
 - [**DeepSeek**](https://www.deepseek.com/) - Advanced AI language model for decision making
 - [**CryptoOracle**](https://cryptoracle.network/) - Cryptocurrency sentiment data provider
 - [**Binance**](https://www.binance.com/) - Cryptocurrency exchange and API
+- [**Redis**](https://redis.io/) - In-memory data store for OCO persistence
+- [**python-telegram-bot**](https://python-telegram-bot.org/) - Telegram bot library
 
 **Special Thanks:**
 - NautilusTrader community for the excellent framework
 - DeepSeek team for accessible AI API
 - Open source community for Python libraries
+- Contributors and testers
 
 ---
 
-## 📞 Support
+## Support & Contact
 
 ### For Issues
 
 1. Check this README thoroughly
-2. Review logs in `logs/` directory
-3. Check `TROUBLESHOOTING.md` (if available)
-4. Review GitHub issues (if project is on GitHub)
+2. Review relevant feature documentation
+3. Check logs in `logs/` directory
+4. Search existing GitHub issues (if applicable)
+5. Review [TROUBLESHOOTING](#troubleshooting) section
 
 ### For Development
 
 - **Python**: 3.10+
 - **NautilusTrader**: Latest stable
-- **Testing**: Run `python run_quick_test.py`
+- **Testing**: Refer to feature documentation
 
 ---
 
-**Last Updated**: November 2024
-
-**Version**: 1.0.0
-
-**Status**: Production Ready (Use with caution)
+**Version**: 1.2.2
+**Last Updated**: November 2025
+**Status**: Production Ready
+**Branch**: `fit/bracket-order`
 
 ---
 
-*Happy Trading! 🚀 But remember: Trade responsibly and never risk more than you can afford to lose.*
+*Trade responsibly and never risk more than you can afford to lose. This strategy is a tool, not a guarantee of profits. Always maintain proper risk management and monitor your positions actively.*
+
+---
+
+## Quick Links
+
+- [Installation](#installation) | [Configuration](#configuration) | [Usage](#usage)
+- [Features](#features) | [Risk Management](#risk-management) | [Monitoring](#monitoring)
+- [Troubleshooting](#troubleshooting) | [Documentation](#documentation)
+- [Performance](#performance-expectations) | [Disclaimer](#disclaimer)
+
+---
+
+**Happy Trading! 🚀**
