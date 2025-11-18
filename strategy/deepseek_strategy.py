@@ -417,10 +417,10 @@ class DeepSeekAIStrategy(Strategy):
 
     def _prefetch_historical_bars(self, limit: int = 200):
         """
-        Pre-fetch historical bars using NautilusTrader's data client.
+        Pre-fetch historical bars from Binance API on startup.
 
         This eliminates the waiting period for indicators to initialize by loading
-        historical data directly from the Binance data client on strategy startup.
+        historical data directly from Binance exchange on strategy startup.
 
         Parameters
         ----------
@@ -428,98 +428,86 @@ class DeepSeekAIStrategy(Strategy):
             Number of historical bars to fetch (default: 200)
         """
         try:
-            from datetime import datetime, timezone
+            import requests
+            from nautilus_trader.core.datetime import millis_to_nanos
 
-            self.log.info(
-                f"📡 Pre-fetching {limit} historical bars from Binance data client "
-                f"(bar_type={self.bar_type})..."
-            )
+            # Extract symbol from instrument_id
+            # Example: BTCUSDT-PERP.BINANCE -> BTCUSDT
+            symbol_str = str(self.instrument_id)
+            symbol = symbol_str.split('-')[0]
 
-            # Calculate start time for historical data request
-            # Request data from now going back (limit * bar_period)
-            end_time = datetime.now(timezone.utc)
-
-            # Calculate bar period in seconds
-            bar_spec = str(self.bar_type).split('-')
-            bar_step = None
-            bar_aggregation = None
-
-            for i, part in enumerate(bar_spec):
-                if part.isdigit():
-                    bar_step = int(part)
-                elif part in ['MINUTE', 'HOUR', 'DAY']:
-                    bar_aggregation = part
-                    break
-
-            if bar_step and bar_aggregation:
-                if bar_aggregation == 'MINUTE':
-                    period_seconds = bar_step * 60
-                elif bar_aggregation == 'HOUR':
-                    period_seconds = bar_step * 3600
-                elif bar_aggregation == 'DAY':
-                    period_seconds = bar_step * 86400
-                else:
-                    period_seconds = 300  # Default 5 minutes
+            # Convert bar type to Binance interval
+            bar_type_str = str(self.bar_type)
+            if '1-MINUTE' in bar_type_str:
+                interval = '1m'
+            elif '5-MINUTE' in bar_type_str:
+                interval = '5m'
+            elif '15-MINUTE' in bar_type_str:
+                interval = '15m'
+            elif '1-HOUR' in bar_type_str:
+                interval = '1h'
+            elif '4-HOUR' in bar_type_str:
+                interval = '4h'
+            elif '1-DAY' in bar_type_str:
+                interval = '1d'
             else:
-                period_seconds = 300  # Default 5 minutes
-
-            start_time = end_time - timedelta(seconds=period_seconds * limit * 1.1)  # Add 10% buffer
-
-            # Request historical bars from data client
-            # This uses the configured Binance adapter automatically
-            self.request_bars(
-                bar_type=self.bar_type,
-                start=start_time,
-                end=end_time,
-                client_id=None,  # Use default client
-            )
+                interval = '5m'  # Default fallback
 
             self.log.info(
-                f"✅ Historical bars request submitted "
-                f"(from {start_time.strftime('%Y-%m-%d %H:%M')} to {end_time.strftime('%Y-%m-%d %H:%M')})"
+                f"📡 Pre-fetching {limit} historical bars from Binance "
+                f"(symbol={symbol}, interval={interval})..."
             )
-            self.log.info("📊 Bars will be processed via on_historical_data() callback")
+
+            # Binance Futures API endpoint
+            url = "https://fapi.binance.com/fapi/v1/klines"
+            params = {
+                'symbol': symbol,
+                'interval': interval,
+                'limit': min(limit, 1500),  # Binance max
+            }
+
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            klines = response.json()
+
+            if not klines:
+                self.log.warning("⚠️ No bars received from Binance API")
+                return
+
+            self.log.info(f"📊 Received {len(klines)} bars from Binance")
+
+            # Convert to NautilusTrader bars and feed to indicators
+            bars_fed = 0
+            for kline in klines:
+                try:
+                    # Create Bar object
+                    bar = Bar(
+                        bar_type=self.bar_type,
+                        open=self.instrument.make_price(float(kline[1])),
+                        high=self.instrument.make_price(float(kline[2])),
+                        low=self.instrument.make_price(float(kline[3])),
+                        close=self.instrument.make_price(float(kline[4])),
+                        volume=self.instrument.make_qty(float(kline[5])),
+                        ts_event=millis_to_nanos(kline[0]),
+                        ts_init=millis_to_nanos(kline[0]),
+                    )
+
+                    # Feed to indicator manager
+                    self.indicator_manager.update(bar)
+                    bars_fed += 1
+
+                except Exception as e:
+                    self.log.warning(f"Failed to convert kline to bar: {e}")
+                    continue
+
+            self.log.info(
+                f"✅ Pre-fetched {bars_fed} bars successfully! "
+                f"Indicators ready: {self.indicator_manager.is_initialized()}"
+            )
 
         except Exception as e:
             self.log.error(f"❌ Failed to pre-fetch bars from Binance: {e}")
             self.log.warning("Continuing with live bars only...")
-
-    def on_historical_data(self, data):
-        """
-        Handle historical data response from data client.
-
-        This callback is triggered when historical bars are received from the
-        request_bars() call in _prefetch_historical_bars().
-
-        Parameters
-        ----------
-        data : DataResponse
-            Historical data response containing bars
-        """
-        try:
-            if hasattr(data, 'data') and data.data:
-                bars = data.data
-                self.log.info(f"📊 Received {len(bars)} historical bars from data client")
-
-                # Feed bars to indicator manager
-                bars_fed = 0
-                for bar in bars:
-                    try:
-                        self.indicator_manager.update(bar)
-                        bars_fed += 1
-                    except Exception as e:
-                        self.log.warning(f"Failed to process historical bar: {e}")
-                        continue
-
-                self.log.info(
-                    f"✅ Pre-fetched {bars_fed} bars successfully! "
-                    f"Indicators ready: {self.indicator_manager.is_initialized()}"
-                )
-            else:
-                self.log.warning("⚠️ No historical bars received from data client")
-
-        except Exception as e:
-            self.log.error(f"❌ Failed to process historical data: {e}")
 
     def on_bar(self, bar: Bar):
         """
