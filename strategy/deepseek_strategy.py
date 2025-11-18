@@ -362,7 +362,10 @@ class DeepSeekAIStrategy(Strategy):
 
         self.log.info(f"Loaded instrument: {self.instrument.id}")
 
-        # Subscribe to bars
+        # Pre-fetch historical bars before subscribing to live data
+        self._prefetch_historical_bars(limit=200)
+
+        # Subscribe to bars (live data)
         self.subscribe_bars(self.bar_type)
         self.log.info(f"Subscribed to {self.bar_type}")
 
@@ -374,11 +377,11 @@ class DeepSeekAIStrategy(Strategy):
         )
 
         self.log.info("Strategy started successfully")
-        
+
         # Record start time for uptime tracking
         from datetime import datetime
         self.strategy_start_time = datetime.utcnow()
-        
+
         # Send Telegram startup notification
         if self.telegram_bot and self.enable_telegram:
             try:
@@ -392,11 +395,11 @@ class DeepSeekAIStrategy(Strategy):
                     }
                 )
                 self.telegram_bot.send_message_sync(startup_msg)
-                
+
                 # Send command help message
                 help_msg = self.telegram_bot.format_help_response()
                 self.telegram_bot.send_message_sync(help_msg)
-                
+
             except Exception as e:
                 self.log.warning(f"Failed to send Telegram startup notification: {e}")
 
@@ -411,6 +414,112 @@ class DeepSeekAIStrategy(Strategy):
         self.unsubscribe_bars(self.bar_type)
 
         self.log.info("Strategy stopped")
+
+    def _prefetch_historical_bars(self, limit: int = 200):
+        """
+        Pre-fetch historical bars using NautilusTrader's data client.
+
+        This eliminates the waiting period for indicators to initialize by loading
+        historical data directly from the Binance data client on strategy startup.
+
+        Parameters
+        ----------
+        limit : int
+            Number of historical bars to fetch (default: 200)
+        """
+        try:
+            from datetime import datetime, timezone
+
+            self.log.info(
+                f"📡 Pre-fetching {limit} historical bars from Binance data client "
+                f"(bar_type={self.bar_type})..."
+            )
+
+            # Calculate start time for historical data request
+            # Request data from now going back (limit * bar_period)
+            end_time = datetime.now(timezone.utc)
+
+            # Calculate bar period in seconds
+            bar_spec = str(self.bar_type).split('-')
+            bar_step = None
+            bar_aggregation = None
+
+            for i, part in enumerate(bar_spec):
+                if part.isdigit():
+                    bar_step = int(part)
+                elif part in ['MINUTE', 'HOUR', 'DAY']:
+                    bar_aggregation = part
+                    break
+
+            if bar_step and bar_aggregation:
+                if bar_aggregation == 'MINUTE':
+                    period_seconds = bar_step * 60
+                elif bar_aggregation == 'HOUR':
+                    period_seconds = bar_step * 3600
+                elif bar_aggregation == 'DAY':
+                    period_seconds = bar_step * 86400
+                else:
+                    period_seconds = 300  # Default 5 minutes
+            else:
+                period_seconds = 300  # Default 5 minutes
+
+            start_time = end_time - timedelta(seconds=period_seconds * limit * 1.1)  # Add 10% buffer
+
+            # Request historical bars from data client
+            # This uses the configured Binance adapter automatically
+            self.request_bars(
+                bar_type=self.bar_type,
+                start=start_time,
+                end=end_time,
+                client_id=None,  # Use default client
+            )
+
+            self.log.info(
+                f"✅ Historical bars request submitted "
+                f"(from {start_time.strftime('%Y-%m-%d %H:%M')} to {end_time.strftime('%Y-%m-%d %H:%M')})"
+            )
+            self.log.info("📊 Bars will be processed via on_historical_data() callback")
+
+        except Exception as e:
+            self.log.error(f"❌ Failed to pre-fetch bars from Binance: {e}")
+            self.log.warning("Continuing with live bars only...")
+
+    def on_historical_data(self, data):
+        """
+        Handle historical data response from data client.
+
+        This callback is triggered when historical bars are received from the
+        request_bars() call in _prefetch_historical_bars().
+
+        Parameters
+        ----------
+        data : DataResponse
+            Historical data response containing bars
+        """
+        try:
+            if hasattr(data, 'data') and data.data:
+                bars = data.data
+                self.log.info(f"📊 Received {len(bars)} historical bars from data client")
+
+                # Feed bars to indicator manager
+                bars_fed = 0
+                for bar in bars:
+                    try:
+                        self.indicator_manager.update(bar)
+                        bars_fed += 1
+                    except Exception as e:
+                        self.log.warning(f"Failed to process historical bar: {e}")
+                        continue
+
+                self.log.info(
+                    f"✅ Pre-fetched {bars_fed} bars successfully! "
+                    f"Indicators ready: {self.indicator_manager.is_initialized()}"
+                )
+            else:
+                self.log.warning("⚠️ No historical bars received from data client")
+
+        except Exception as e:
+            self.log.error(f"❌ Failed to process historical data: {e}")
 
     def on_bar(self, bar: Bar):
         """
