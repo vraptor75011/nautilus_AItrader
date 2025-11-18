@@ -77,6 +77,7 @@ class TechnicalIndicatorManager:
             fast_period=macd_fast,
             slow_period=macd_slow,
         )
+        self.macd_signal = ExponentialMovingAverage(macd_signal)
 
         # For Bollinger Bands calculation
         self.bb_sma = SimpleMovingAverage(bb_period)
@@ -96,6 +97,8 @@ class TechnicalIndicatorManager:
         self.ema_periods = ema_periods
         self.rsi_period = rsi_period
         self.macd_slow_period = macd_slow
+        self.macd_fast_period = macd_fast
+        self.macd_signal_period = macd_signal
 
     def update(self, bar: Bar):
         """
@@ -124,6 +127,7 @@ class TechnicalIndicatorManager:
 
         # Update MACD
         self.macd.update_raw(float(bar.close))
+        self.macd_signal.update_raw(self.macd.value)
 
         # Update Bollinger Band SMA
         self.bb_sma.update_raw(float(bar.close))
@@ -156,7 +160,7 @@ class TechnicalIndicatorManager:
 
         # MACD
         macd_value = self.macd.value
-        macd_signal = self.macd.value  # Signal line from MACD indicator
+        macd_signal_value = self.macd_signal.value  # Signal line from MACD indicator
 
         # Bollinger Bands
         bb_middle = self.bb_sma.value
@@ -174,37 +178,32 @@ class TechnicalIndicatorManager:
         support, resistance = self._calculate_support_resistance()
 
         # Trend analysis
-        trend_data = self._analyze_trend(current_price, sma_values, macd_value, macd_signal)
+        trend_data = self._analyze_trend(
+            current_price, sma_values, macd_value, macd_signal_value
+        )
 
         # Combine all data
         technical_data = {
             # SMAs
             **sma_values,
-
             # EMAs
             **ema_values,
-
             # RSI
-            'rsi': rsi_value,
-
+            "rsi": rsi_value,
             # MACD
-            'macd': macd_value,
-            'macd_signal': macd_signal,
-            'macd_histogram': macd_value - macd_signal,
-
+            "macd": macd_value,
+            "macd_signal": macd_signal_value,
+            "macd_histogram": macd_value - macd_signal_value,
             # Bollinger Bands
-            'bb_upper': bb_upper,
-            'bb_middle': bb_middle,
-            'bb_lower': bb_lower,
-            'bb_position': bb_position,
-
+            "bb_upper": bb_upper,
+            "bb_middle": bb_middle,
+            "bb_lower": bb_lower,
+            "bb_position": bb_position,
             # Volume
-            'volume_ratio': volume_ratio,
-
+            "volume_ratio": volume_ratio,
             # Support/Resistance
-            'support': support,
-            'resistance': resistance,
-
+            "support": support,
+            "resistance": resistance,
             # Trend analysis
             **trend_data,
         }
@@ -237,7 +236,7 @@ class TechnicalIndicatorManager:
         current_price: float,
         sma_values: Dict[str, float],
         macd_value: float,
-        macd_signal: float
+        macd_signal_value: float,
     ) -> Dict[str, Any]:
         """
         Analyze market trend using multiple indicators.
@@ -257,7 +256,7 @@ class TechnicalIndicatorManager:
         medium_term_trend = "上涨" if current_price > sma_50 else "下跌"
 
         # MACD trend
-        macd_trend = "bullish" if macd_value > macd_signal else "bearish"
+        macd_trend = "bullish" if macd_value > macd_signal_value else "bearish"
 
         # Overall trend
         if short_term_trend == "上涨" and medium_term_trend == "上涨":
