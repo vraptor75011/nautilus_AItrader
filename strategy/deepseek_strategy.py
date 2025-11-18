@@ -821,6 +821,11 @@ class DeepSeekAIStrategy(Strategy):
         max_usdt = self.equity * self.position_config['max_position_ratio']
         final_usdt = min(suggested_usdt, max_usdt)
 
+        # Enforce Binance minimum notional requirement ($100)
+        MIN_NOTIONAL_USDT = 100.0
+        if final_usdt < MIN_NOTIONAL_USDT:
+            final_usdt = MIN_NOTIONAL_USDT
+
         # Convert to BTC quantity
         current_price = price_data['price']
         btc_quantity = final_usdt / current_price
