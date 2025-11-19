@@ -353,6 +353,11 @@ BINANCE_API_KEY=your_binance_api_key_here
 BINANCE_API_SECRET=your_binance_api_secret_here
 
 # ========================================
+# TRADING MODE
+# ========================================
+DEMO_MODE=true                      # true = paper trading (testnet), false = live trading
+
+# ========================================
 # AI SERVICE
 # ========================================
 DEEPSEEK_API_KEY=your_deepseek_api_key_here
@@ -584,6 +589,55 @@ telegram:
 
 ```yaml
 timer_interval_sec: 900                 # AI analysis every 15 minutes
+```
+
+#### Demo Mode (Paper Trading)
+
+Enable **DEMO_MODE** to trade on Binance testnet (paper trading) without risking real funds. Ideal for:
+
+- Testing your configuration and strategy
+- Learning without financial risk
+- Validating indicators and signals
+- Stress-testing the bot
+
+**Activation:**
+
+```bash
+# In .env file
+DEMO_MODE=true              # true = testnet/paper trading
+                            # false = live trading (real money!)
+```
+
+**What Changes:**
+
+- ✅ All market data comes from Binance testnet
+- ✅ All orders execute on testnet (no real funds used)
+- ✅ All indicators and signals work identically
+- ✅ Can test position sizing, risk management, OCO, etc.
+
+**Startup Message:**
+
+```
+📊 DEMO MODE - Paper trading on Binance testnet (NO REAL ORDERS)
+```
+
+**Important Notes:**
+
+- Testnet has limited liquidity (simulated)
+- Orders may fill differently than live
+- Testnet is reset periodically by Binance
+- Always start with DEMO_MODE=true to validate your setup
+- Only switch to DEMO_MODE=false after thorough testing
+
+**Testing Workflow:**
+
+```
+1. Set DEMO_MODE=true, run strategy for 1-2 hours
+2. Verify indicators calculate correctly
+3. Review signal generation and confidence levels
+4. Check position sizing matches your settings
+5. Validate OCO and trailing stop logic
+6. Only then switch to DEMO_MODE=false with real funds
 ```
 
 ### Configuration Profiles

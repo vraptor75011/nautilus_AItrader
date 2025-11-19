@@ -38,6 +38,9 @@ pip install -r requirements.txt
 ```bash
 # Create .env
 cat > .env << 'EOF'
+# Trading Mode
+DEMO_MODE=true                      # ⭐ START WITH DEMO_MODE=true FOR TESTING!
+
 # Exchange
 BINANCE_API_KEY=your_api_key_here
 BINANCE_API_SECRET=your_api_secret_here
@@ -59,6 +62,8 @@ EOF
 # Secure it
 chmod 600 .env
 ```
+
+**Important**: Start with `DEMO_MODE=true` to paper-trade on Binance testnet (no real funds). After thorough testing, set `DEMO_MODE=false` for live trading.
 
 ### 3. Binance Setup
 

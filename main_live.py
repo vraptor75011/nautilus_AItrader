@@ -4,24 +4,33 @@ Live Trading Entrypoint for DeepSeek AI Strategy
 Runs the DeepSeek AI strategy on Binance Futures (BTCUSDT-PERP) with live market data.
 """
 
-import os
 import asyncio
-import yaml
+import os
 from decimal import Decimal
 from pathlib import Path
 
+import yaml
 from dotenv import load_dotenv
-
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
-from nautilus_trader.adapters.binance.config import BinanceDataClientConfig, BinanceExecClientConfig
-from nautilus_trader.adapters.binance.factories import BinanceLiveDataClientFactory, BinanceLiveExecClientFactory
-from nautilus_trader.config import InstrumentProviderConfig, LiveExecEngineConfig, LoggingConfig, TradingNodeConfig
+from nautilus_trader.adapters.binance.config import (
+    BinanceDataClientConfig,
+    BinanceExecClientConfig,
+)
+from nautilus_trader.adapters.binance.factories import (
+    BinanceLiveDataClientFactory,
+    BinanceLiveExecClientFactory,
+)
+from nautilus_trader.config import (
+    InstrumentProviderConfig,
+    LiveExecEngineConfig,
+    LoggingConfig,
+    TradingNodeConfig,
+)
 from nautilus_trader.live.node import TradingNode
-from nautilus_trader.model.identifiers import TraderId, InstrumentId
+from nautilus_trader.model.identifiers import InstrumentId, TraderId
 from nautilus_trader.trading.config import ImportableStrategyConfig
 
 from strategy.deepseek_strategy import DeepSeekAIStrategy, DeepSeekAIStrategyConfig
-
 
 # Load environment variables
 load_dotenv()
@@ -216,12 +225,17 @@ def get_binance_config() -> tuple:
     if not api_key or not api_secret:
         raise ValueError("BINANCE_API_KEY and BINANCE_API_SECRET required in .env")
 
+    # Check DEMO_MODE - if enabled, use Binance testnet (paper trading)
+    # If disabled, use live Binance account
+    demo_mode = os.getenv("DEMO_MODE", "false").strip().lower() == "true"
+    use_testnet = demo_mode
+
     # Data client config
     data_config = BinanceDataClientConfig(
         api_key=api_key,
         api_secret=api_secret,
         account_type=BinanceAccountType.USDT_FUTURES,  # Binance Futures
-        testnet=False,  # Set to True for testnet
+        testnet=use_testnet,  # True = testnet (demo/paper trading), False = live
         instrument_provider=InstrumentProviderConfig(load_all=True),
     )
 
@@ -230,7 +244,7 @@ def get_binance_config() -> tuple:
         api_key=api_key,
         api_secret=api_secret,
         account_type=BinanceAccountType.USDT_FUTURES,
-        testnet=False,
+        testnet=use_testnet,  # True = testnet (demo/paper trading), False = live
         instrument_provider=InstrumentProviderConfig(load_all=True),
     )
 
@@ -296,19 +310,22 @@ def main():
     print("=" * 70)
     print("DeepSeek AI Trading Strategy - Live Trading Mode")
     print("=" * 70)
-    print(f"Exchange: Binance Futures (USDT-M)")
-    print(f"Instrument: BTCUSDT-PERP")
-    print(f"Strategy: AI-powered with DeepSeek")
+    print("Exchange: Binance Futures (USDT-M)")
+    print("Instrument: BTCUSDT-PERP")
+    print("Strategy: AI-powered with DeepSeek")
     print("=" * 70)
 
     # Safety check
     test_mode = os.getenv('TEST_MODE', 'false').strip().lower() == 'true'
     auto_confirm = os.getenv('AUTO_CONFIRM', 'false').strip().lower() == 'true'
-    
-    if test_mode:
+    demo_mode = os.getenv("DEMO_MODE", "false").strip().lower() == "true"
+
+    if demo_mode:
+        print("📊 DEMO MODE - Paper trading on Binance testnet (NO REAL ORDERS)")
+    elif test_mode:
         print("⚠️  TEST_MODE=true - This is a simulation, no real orders will be placed")
     else:
-        print("🚨 LIVE TRADING MODE - Real orders will be placed!")
+        print("🚨 LIVE TRADING MODE - Real orders will be placed on Binance!")
         if auto_confirm:
             print("⚠️  AUTO_CONFIRM=true - Skipping user confirmation")
         else:
@@ -380,4 +397,8 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
         import traceback
+        traceback.print_exc()
+        print(f"\n❌ Fatal error: {e}")
+        import traceback
+
         traceback.print_exc()
