@@ -837,10 +837,25 @@ class DeepSeekAIStrategy(Strategy):
         # Round to instrument precision
         btc_quantity = round(btc_quantity, 3)  # Binance BTC precision
 
+        # CRITICAL: Re-check notional after rounding to ensure still >= $100
+        # Rounding can reduce the quantity below minimum notional threshold
+        actual_notional = btc_quantity * current_price
+        if actual_notional < MIN_NOTIONAL_USDT:
+            # Increase quantity to meet minimum notional (round UP)
+            btc_quantity = MIN_NOTIONAL_USDT / current_price
+            # Round up to next 0.001 to ensure we stay above minimum
+            import math
+            btc_quantity = math.ceil(btc_quantity * 1000) / 1000
+            self.log.warning(
+                f"⚠️ Adjusted quantity after rounding: {btc_quantity:.3f} BTC "
+                f"to meet ${MIN_NOTIONAL_USDT} minimum notional"
+            )
+
         self.log.info(
             f"📊 Position Sizing: "
             f"Base:{base_usdt} × Conf:{conf_mult} × Trend:{trend_mult} × RSI:{rsi_mult} "
-            f"= ${final_usdt:.2f} = {btc_quantity:.3f} BTC"
+            f"= ${final_usdt:.2f} = {btc_quantity:.3f} BTC "
+            f"(notional: ${btc_quantity * current_price:.2f})"
         )
 
         return btc_quantity
