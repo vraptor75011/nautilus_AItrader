@@ -74,8 +74,8 @@ class SentimentDataFetcher:
                 "X-API-KEY": self.API_KEY
             }
 
-            # Make request
-            response = requests.post(self.API_URL, json=request_body, headers=headers)
+            # Make request with timeout to prevent hanging
+            response = requests.post(self.API_URL, json=request_body, headers=headers, timeout=10)
 
             if response.status_code == 200:
                 data = response.json()

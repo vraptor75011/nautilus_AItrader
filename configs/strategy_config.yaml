@@ -13,11 +13,11 @@ strategy:
 
   # Position sizing
   position_management:
-    base_usdt_amount: 30  # Base position size (adjusted to match max_position_ratio limit)
+    base_usdt_amount: 100  # Base position size (meets Binance $100 minimum notional)
     high_confidence_multiplier: 1.5
     medium_confidence_multiplier: 1.0
     low_confidence_multiplier: 0.5
-    max_position_ratio: 0.10  # Max 10% of equity (40 USDT max)
+    max_position_ratio: 0.30  # Max 30% of equity (120 USDT max with 400 equity)
     trend_strength_multiplier: 1.2
     min_trade_amount: 0.001  # Minimum BTC amount
 
