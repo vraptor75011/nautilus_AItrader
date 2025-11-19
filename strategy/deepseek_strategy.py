@@ -362,7 +362,10 @@ class DeepSeekAIStrategy(Strategy):
 
         self.log.info(f"Loaded instrument: {self.instrument.id}")
 
-        # Subscribe to bars
+        # Pre-fetch historical bars before subscribing to live data
+        self._prefetch_historical_bars(limit=200)
+
+        # Subscribe to bars (live data)
         self.subscribe_bars(self.bar_type)
         self.log.info(f"Subscribed to {self.bar_type}")
 
@@ -374,11 +377,11 @@ class DeepSeekAIStrategy(Strategy):
         )
 
         self.log.info("Strategy started successfully")
-        
+
         # Record start time for uptime tracking
         from datetime import datetime
         self.strategy_start_time = datetime.utcnow()
-        
+
         # Send Telegram startup notification
         if self.telegram_bot and self.enable_telegram:
             try:
@@ -392,11 +395,11 @@ class DeepSeekAIStrategy(Strategy):
                     }
                 )
                 self.telegram_bot.send_message_sync(startup_msg)
-                
+
                 # Send command help message
                 help_msg = self.telegram_bot.format_help_response()
                 self.telegram_bot.send_message_sync(help_msg)
-                
+
             except Exception as e:
                 self.log.warning(f"Failed to send Telegram startup notification: {e}")
 
@@ -411,6 +414,100 @@ class DeepSeekAIStrategy(Strategy):
         self.unsubscribe_bars(self.bar_type)
 
         self.log.info("Strategy stopped")
+
+    def _prefetch_historical_bars(self, limit: int = 200):
+        """
+        Pre-fetch historical bars from Binance API on startup.
+
+        This eliminates the waiting period for indicators to initialize by loading
+        historical data directly from Binance exchange on strategy startup.
+
+        Parameters
+        ----------
+        limit : int
+            Number of historical bars to fetch (default: 200)
+        """
+        try:
+            import requests
+            from nautilus_trader.core.datetime import millis_to_nanos
+
+            # Extract symbol from instrument_id
+            # Example: BTCUSDT-PERP.BINANCE -> BTCUSDT
+            symbol_str = str(self.instrument_id)
+            symbol = symbol_str.split('-')[0]
+
+            # Convert bar type to Binance interval
+            bar_type_str = str(self.bar_type)
+            if '1-MINUTE' in bar_type_str:
+                interval = '1m'
+            elif '5-MINUTE' in bar_type_str:
+                interval = '5m'
+            elif '15-MINUTE' in bar_type_str:
+                interval = '15m'
+            elif '1-HOUR' in bar_type_str:
+                interval = '1h'
+            elif '4-HOUR' in bar_type_str:
+                interval = '4h'
+            elif '1-DAY' in bar_type_str:
+                interval = '1d'
+            else:
+                interval = '5m'  # Default fallback
+
+            self.log.info(
+                f"📡 Pre-fetching {limit} historical bars from Binance "
+                f"(symbol={symbol}, interval={interval})..."
+            )
+
+            # Binance Futures API endpoint
+            url = "https://fapi.binance.com/fapi/v1/klines"
+            params = {
+                'symbol': symbol,
+                'interval': interval,
+                'limit': min(limit, 1500),  # Binance max
+            }
+
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            klines = response.json()
+
+            if not klines:
+                self.log.warning("⚠️ No bars received from Binance API")
+                return
+
+            self.log.info(f"📊 Received {len(klines)} bars from Binance")
+
+            # Convert to NautilusTrader bars and feed to indicators
+            bars_fed = 0
+            for kline in klines:
+                try:
+                    # Create Bar object
+                    bar = Bar(
+                        bar_type=self.bar_type,
+                        open=self.instrument.make_price(float(kline[1])),
+                        high=self.instrument.make_price(float(kline[2])),
+                        low=self.instrument.make_price(float(kline[3])),
+                        close=self.instrument.make_price(float(kline[4])),
+                        volume=self.instrument.make_qty(float(kline[5])),
+                        ts_event=millis_to_nanos(kline[0]),
+                        ts_init=millis_to_nanos(kline[0]),
+                    )
+
+                    # Feed to indicator manager
+                    self.indicator_manager.update(bar)
+                    bars_fed += 1
+
+                except Exception as e:
+                    self.log.warning(f"Failed to convert kline to bar: {e}")
+                    continue
+
+            self.log.info(
+                f"✅ Pre-fetched {bars_fed} bars successfully! "
+                f"Indicators ready: {self.indicator_manager.is_initialized()}"
+            )
+
+        except Exception as e:
+            self.log.error(f"❌ Failed to pre-fetch bars from Binance: {e}")
+            self.log.warning("Continuing with live bars only...")
 
     def on_bar(self, bar: Bar):
         """
@@ -724,6 +821,11 @@ class DeepSeekAIStrategy(Strategy):
         max_usdt = self.equity * self.position_config['max_position_ratio']
         final_usdt = min(suggested_usdt, max_usdt)
 
+        # Enforce Binance minimum notional requirement ($100)
+        MIN_NOTIONAL_USDT = 100.0
+        if final_usdt < MIN_NOTIONAL_USDT:
+            final_usdt = MIN_NOTIONAL_USDT
+
         # Convert to BTC quantity
         current_price = price_data['price']
         btc_quantity = final_usdt / current_price
@@ -735,10 +837,25 @@ class DeepSeekAIStrategy(Strategy):
         # Round to instrument precision
         btc_quantity = round(btc_quantity, 3)  # Binance BTC precision
 
+        # CRITICAL: Re-check notional after rounding to ensure still >= $100
+        # Rounding can reduce the quantity below minimum notional threshold
+        actual_notional = btc_quantity * current_price
+        if actual_notional < MIN_NOTIONAL_USDT:
+            # Increase quantity to meet minimum notional (round UP)
+            btc_quantity = MIN_NOTIONAL_USDT / current_price
+            # Round up to next 0.001 to ensure we stay above minimum
+            import math
+            btc_quantity = math.ceil(btc_quantity * 1000) / 1000
+            self.log.warning(
+                f"⚠️ Adjusted quantity after rounding: {btc_quantity:.3f} BTC "
+                f"to meet ${MIN_NOTIONAL_USDT} minimum notional"
+            )
+
         self.log.info(
             f"📊 Position Sizing: "
             f"Base:{base_usdt} × Conf:{conf_mult} × Trend:{trend_mult} × RSI:{rsi_mult} "
-            f"= ${final_usdt:.2f} = {btc_quantity:.3f} BTC"
+            f"= ${final_usdt:.2f} = {btc_quantity:.3f} BTC "
+            f"(notional: ${btc_quantity * current_price:.2f})"
         )
 
         return btc_quantity
@@ -1376,7 +1493,7 @@ class DeepSeekAIStrategy(Strategy):
                 order_side=exit_side,
                 quantity=self.instrument.make_qty(quantity),
                 trigger_price=self.instrument.make_price(new_sl_price),
-                trigger_type=TriggerType.LAST_TRADE,
+                trigger_type=TriggerType.LAST_PRICE,
                 reduce_only=True,
             )
             self.submit_order(new_sl_order)
